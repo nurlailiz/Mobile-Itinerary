@@ -146,7 +146,8 @@
         <span>Exchange rate</span>
         <div class="rate-line">1 <b id="spendRateFrom"></b> =
           <input type="number" name="rate" inputmode="decimal" step="any" min="0" placeholder="rate" aria-label="Exchange rate" />
-          <b id="spendRateTo"></b></div>
+          <b id="spendRateTo"></b>
+          <a class="xe" id="spendXe" href="#" target="_blank" rel="noopener">XE ↗</a></div>
       </div>
       <div class="converted" id="spendConverted"></div>
       <div class="field" id="payerField">
@@ -174,7 +175,7 @@
         <select id="ratesAddSel" aria-label="Add currency"></select>
         <button type="button" class="btn small" id="ratesAdd">+ Add currency</button>
       </div>
-      <button type="button" class="btn" id="ratesFetch">🔄 Get latest rates (needs internet)</button>
+      <button type="button" class="btn" id="ratesFetch">🔄 Update all to today’s rates</button>
       <div class="sheet-actions">
         <span class="spacer"></span>
         <button type="button" class="btn ghost" id="ratesCancel">Cancel</button>

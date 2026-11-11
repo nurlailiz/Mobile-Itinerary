@@ -355,3 +355,7 @@ label.mini > span { font-size: .72rem; font-weight: 600; color: var(--muted); }
 .legs-cell { min-width: 210px; }
 .leg-line { line-height: 1.5; }
 .leg-line i { display: block; font-style: normal; color: var(--muted); font-size: .75rem; line-height: 1.2; }
+
+/* XE compare link */
+a.xe { flex: none; font-size: .8rem; font-weight: 700; color: var(--brand); text-decoration: none; padding: 4px 8px; border-radius: 8px; background: var(--brand-soft); white-space: nowrap; }
+.rates-list .rate-line input { min-width: 0; }

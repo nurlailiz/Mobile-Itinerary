@@ -350,6 +350,9 @@
           </button>`).join('')}
         <button class="day-tab add" id="addDay" aria-label="Add day">+</button>
       </nav>`;
+    autoFillRates(trip).then((got) => {
+      if (got.length && location.hash === `#/trip/${trip.id}`) { renderTrip(trip); toast(`💱 Got today's rate for ${got.join(', ')}`); }
+    });
     if (di === -1) { renderOverview(trip, chrome, T); return; }
     const day = trip.days[di];
     day.items = sortItems(day.items);
@@ -800,7 +803,7 @@
     if (!fees.length) { el.innerHTML = ''; return; }
     const s = sumBase(trip, fees);
     el.innerHTML = `Total ≈ <b>${esc(fmtMoney(s.total, trip.base, true))}</b>${s.missing.size
-      ? ` <span class="warn">· no rate for ${esc([...s.missing].join(', '))}</span> <button type="button" id="feeRates">Set rate</button>` : ''}`;
+      ? ` <span class="warn">· no rate for ${esc([...s.missing].join(', '))} (offline?)</span> <button type="button" id="feeRates">Set rate</button>` : ''}`;
     $('#feeRates')?.addEventListener('click', () => openRatesDialog(trip, () => updateFeeTotal()));
   }
   $('#feeRows').addEventListener('input', (e) => {
@@ -808,6 +811,9 @@
     if (!row || !e.target.dataset.k) return;
     feeDraft[row.dataset.i][e.target.dataset.k] = e.target.value;
     updateFeeTotal();
+    if (e.target.dataset.k === 'currency') {
+      autoFillRates(itemCtx.trip, [e.target.value]).then((got) => { if (got.length && itemDialog.open) updateFeeTotal(); });
+    }
   });
   $('#feeRows').addEventListener('click', (e) => {
     const b = e.target.closest('[data-rm]');
@@ -924,11 +930,23 @@
       : rate ? `In ${esc(sym(trip.base))}: <b>${esc(fmtMoney(amt * rate, trip.base, true))}</b>`
         : '<span class="warn">Enter the exchange rate to see the price in ' + esc(sym(trip.base)) + '</span>';
   }
-  spendForm.elements.currency.addEventListener('change', () => {
+  async function fillSpendRate() {
     const { trip } = spendCtx;
-    spendForm.elements.rate.value = fmtRate(rateOf(trip, spendForm.elements.currency.value));
+    const f = spendForm.elements;
+    const code = f.currency.value;
+    f.rate.value = fmtRate(rateOf(trip, code));
+    $('#spendXe').href = xeUrl(code, trip.base);
     updateSpendPreview();
-  });
+    if (code === trip.base || f.rate.value) return;
+    f.rate.placeholder = 'Getting today’s rate…';
+    await autoFillRates(trip, [code]);
+    f.rate.placeholder = 'rate';
+    if (f.currency.value === code && !f.rate.value && trip.rates[code]) {
+      f.rate.value = fmtRate(trip.rates[code]);
+      updateSpendPreview();
+    }
+  }
+  spendForm.elements.currency.addEventListener('change', fillSpendRate);
   spendForm.elements.amount.addEventListener('input', updateSpendPreview);
   spendForm.elements.rate.addEventListener('input', updateSpendPreview);
   $('#payerChips').addEventListener('click', (e) => {
@@ -971,7 +989,6 @@
     const code = sp ? sp.currency : (kind === 'spend' ? trip.lastSpendCurrency || trip.currency : kind === 'alloc' ? trip.base : trip.currency);
     f.currency.innerHTML = curOptions(trip, code);
     f.currency.value = code;
-    f.rate.value = fmtRate(rateOf(trip, code));
     selectedCat = sp ? sp.category || '' : (kind === 'alloc' ? 'meals' : kind === 'cost' ? 'flight' : '');
     if (sp) {
       f.what.value = sp.item;
@@ -982,7 +999,7 @@
     }
     renderCatChips();
     renderPayerChips();
-    updateSpendPreview();
+    fillSpendRate();
     spendDialog.showModal();
     spendDialog.scrollTop = 0;
     if (!sp) setTimeout(() => f.what.focus(), 50);
@@ -1015,6 +1032,43 @@
     toast('Deleted');
   });
 
+  // ---------- Live exchange rates ----------
+  // Free daily mid-market rates (similar to XE's). XE's own API is paid and needs a secret key,
+  // so XE is offered as a one-tap link to compare instead.
+  const xeUrl = (from, to) => `https://www.xe.com/currencyconverter/convert/?Amount=1&From=${encodeURIComponent(from)}&To=${encodeURIComponent(to)}`;
+  const rateCache = {}; // base -> { at, rates } or { failedAt }
+  async function fetchRateTable(base) {
+    const c = rateCache[base];
+    if (c?.rates && Date.now() - c.at < 60 * 60 * 1000) return c.rates;
+    if (c?.failedAt && Date.now() - c.failedAt < 60 * 1000) throw new Error('recently failed');
+    try {
+      const res = await fetch(`https://open.er-api.com/v6/latest/${encodeURIComponent(base)}`);
+      const data = await res.json();
+      if (data.result !== 'success' || !data.rates) throw new Error('bad response');
+      rateCache[base] = { at: Date.now(), rates: data.rates };
+      return data.rates;
+    } catch (err) {
+      rateCache[base] = { failedAt: Date.now() };
+      throw err;
+    }
+  }
+  const todayLabel = () => new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+
+  // Fill in rates the trip doesn't have yet. Never overwrites a rate you typed. Returns the codes filled.
+  async function autoFillRates(trip, codes = tripCurrencies(trip)) {
+    const missing = [...new Set(codes)].filter((c) => c && c !== trip.base && !trip.rates[c]);
+    if (!missing.length || navigator.onLine === false) return [];
+    try {
+      const table = await fetchRateTable(trip.base);
+      const got = missing.filter((c) => table[c] > 0);
+      got.forEach((c) => { trip.rates[c] = Number((1 / table[c]).toPrecision(6)); });
+      if (got.length) { trip.ratesUpdated = todayLabel(); save(); }
+      return got;
+    } catch (err) {
+      return [];
+    }
+  }
+
   // ---------- Rates dialog ----------
   const ratesDialog = $('#ratesDialog');
   const ratesForm = $('#ratesForm');
@@ -1022,11 +1076,12 @@
 
   function renderRates() {
     const { trip, codes, values } = ratesCtx;
-    $('#ratesNote').innerHTML = `How much 1 unit of each currency is worth in <b>${esc(trip.base)}</b>. Totals and “who paid” are converted with these rates.${trip.ratesUpdated ? ` Last fetched ${esc(trip.ratesUpdated)}.` : ''}`;
+    $('#ratesNote').innerHTML = `How much 1 unit of each currency is worth in <b>${esc(trip.base)}</b>. Rates fill in automatically when you're online (daily market rates, like XE)${trip.ratesUpdated ? ` — last updated ${esc(trip.ratesUpdated)}` : ''}. Tap <b>XE ↗</b> to compare, or type your money changer's rate.`;
     $('#ratesList').innerHTML = codes.length ? codes.map((c) => `
       <div class="rate-line" data-code="${c}">1 <b>${c}</b> =
         <input type="number" step="any" min="0" inputmode="decimal" value="${esc(fmtRate(values[c]))}" placeholder="rate" aria-label="${c} rate" />
         <b>${esc(sym(trip.base))}</b>
+        <a class="xe" href="${xeUrl(c, trip.base)}" target="_blank" rel="noopener">XE ↗</a>
         <button type="button" class="rm" data-rm="${c}" aria-label="Remove ${c}">✕</button>
       </div>`).join('') : '<p class="muted-note">Only one currency so far. Add the currencies you will spend in.</p>';
     $('#ratesAddSel').innerHTML = CURRENCIES.map(([c, , name]) => c)
@@ -1041,12 +1096,28 @@
     ratesCtx = { trip, codes, values: { ...trip.rates }, onDone };
     renderRates();
     ratesDialog.showModal();
+    fillMissingInDialog();
+  }
+  // Fetch rates for currencies in the dialog that are still blank (keeps anything typed)
+  async function fillMissingInDialog() {
+    const ctx = ratesCtx;
+    const blank = ctx.codes.filter((c) => !ctx.values[c]);
+    if (!blank.length || navigator.onLine === false) return;
+    try {
+      const table = await fetchRateTable(ctx.trip.base);
+      if (ratesCtx !== ctx || !ratesDialog.open) return;
+      readRateInputs();
+      let n = 0;
+      blank.forEach((c) => { if (!ctx.values[c] && table[c] > 0) { ctx.values[c] = 1 / table[c]; n++; } });
+      if (n) { ctx.fetched = todayLabel(); renderRates(); }
+    } catch (err) { /* offline: leave blank for manual entry */ }
   }
   $('#ratesAdd').addEventListener('click', () => {
     readRateInputs();
     const c = $('#ratesAddSel').value;
     if (c && !ratesCtx.codes.includes(c)) ratesCtx.codes.push(c);
     renderRates();
+    fillMissingInDialog();
   });
   $('#ratesList').addEventListener('click', (e) => {
     const b = e.target.closest('[data-rm]');
@@ -1062,18 +1133,17 @@
     const btn = $('#ratesFetch');
     btn.disabled = true; btn.textContent = 'Fetching…';
     try {
-      const res = await fetch(`https://open.er-api.com/v6/latest/${encodeURIComponent(trip.base)}`);
-      const data = await res.json();
-      if (data.result !== 'success' || !data.rates) throw new Error('bad response');
+      delete rateCache[trip.base]; // force fresh numbers
+      const table = await fetchRateTable(trip.base);
       let n = 0;
-      ratesCtx.codes.forEach((c) => { if (data.rates[c] > 0) { ratesCtx.values[c] = 1 / data.rates[c]; n++; } });
-      ratesCtx.fetched = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+      ratesCtx.codes.forEach((c) => { if (table[c] > 0) { ratesCtx.values[c] = 1 / table[c]; n++; } });
+      ratesCtx.fetched = todayLabel();
       renderRates();
       toast(n ? `Updated ${plural(n, 'rate', 'rates')} — tap Save to keep` : 'No rates to update');
     } catch (err) {
       toast('⚠️ Could not get rates — enter them manually');
     } finally {
-      btn.disabled = false; btn.textContent = '🔄 Get latest rates (needs internet)';
+      btn.disabled = false; btn.textContent = '🔄 Update all to today’s rates';
     }
   });
   ratesForm.addEventListener('submit', (e) => {
