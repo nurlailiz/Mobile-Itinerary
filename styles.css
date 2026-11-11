@@ -338,3 +338,20 @@ td.fee small { color: var(--muted); }
 }
 .card .legs li + li { margin-top: 6px; }
 .card .legs b { font-weight: 600; word-break: break-word; }
+
+/* ---------- Leg line / number ---------- */
+.leg-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 8px; }
+.leg-fields.no-line { grid-template-columns: 1fr; }
+.leg-fields.no-line .mini:first-child { display: none; }
+label.mini { display: grid; gap: 4px; min-width: 0; }
+label.mini > span { font-size: .72rem; font-weight: 600; color: var(--muted); }
+.line-badge {
+  display: inline-block; padding: 1px 8px; margin-right: 6px; border-radius: 7px; font-weight: 700; font-size: .92em;
+  background: var(--accent, var(--brand)); color: #fff; white-space: nowrap; vertical-align: 1px;
+}
+.leg-text { font-weight: 600; }
+.legs-cell .line-badge { font-size: .8rem; }
+.legs-cell .leg-text { font-weight: 500; }
+.legs-cell { min-width: 210px; }
+.leg-line { line-height: 1.5; }
+.leg-line i { display: block; font-style: normal; color: var(--muted); font-size: .75rem; line-height: 1.2; }

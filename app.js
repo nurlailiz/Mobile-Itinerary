@@ -19,7 +19,14 @@
     { id: 'other', label: 'Other', icon: '🧭', color: '#db2777' },
   ];
   const modeOf = (id) => MODES.find((m) => m.id === id) || MODES[0];
-  const legLabel = (l) => l.detail || modeOf(l.mode).label;
+  // Label + placeholder for the "line / number" box of a transport leg, by mode
+  const LINE_HINT = {
+    bus: ['Bus no.', 'e.g. 205 / U83'], train: ['Train line', 'e.g. JR Nara Line / KTM'], metro: ['Line', 'e.g. Midosuji / MRT Kajang'],
+    flight: ['Flight no.', 'e.g. MH52'], boat: ['Ferry / route', 'e.g. Star Ferry'], taxi: ['Service / plate', 'e.g. Grab, WXY 1234'],
+    car: ['Car / plate', 'e.g. rental car'], bike: ['Bike', 'e.g. bike share'], other: ['Name / number', ''], '': ['Line / number', 'e.g. Bus 205'],
+  };
+  const lineHint = (mode) => LINE_HINT[mode] || LINE_HINT[''];
+  const legLabel = (l) => (l.line && l.detail ? `${l.line} – ${l.detail}` : l.line || l.detail || modeOf(l.mode).label);
   const legsText = (legs) => legs.map((l) => `${modeOf(l.mode).icon} ${legLabel(l)}`).join(' → ');
   const transferText = (n) => (n > 1 ? `${n - 1} transfer${n > 2 ? 's' : ''}` : '');
 
@@ -85,8 +92,8 @@
         activity: String(it?.activity || 'Untitled'),
         // v1/v2 had a single mode + transport text; now a list of legs (for transfers)
         legs: (Array.isArray(it?.legs) ? it.legs : (it?.mode || it?.transport ? [{ mode: it.mode, detail: it.transport }] : []))
-          .map((l) => ({ mode: modeOf(l?.mode).id, detail: String(l?.detail || '').trim() }))
-          .filter((l) => l.mode || l.detail),
+          .map((l) => ({ mode: modeOf(l?.mode).id, line: String(l?.line || '').trim(), detail: String(l?.detail || '').trim() }))
+          .filter((l) => l.mode || l.line || l.detail),
         fees: Array.isArray(it?.fees)
           ? it.fees.map(fee).filter((f) => f.amount > 0)
           : (num(it?.fee) > 0 ? [{ id: uid(), label: '', amount: num(it.fee), currency }] : []),
@@ -538,6 +545,13 @@
       : `<div class="val">${lines.join('')}</div>${total ? `<div class="fee-sum">${total}</div>` : ''}`;
   }
 
+  // One transport leg: coloured badge for the bus no. / line, then the details
+  function legHTML(l) {
+    const m = modeOf(l.mode);
+    return `<b class="leg-text">${l.line ? `<span class="line-badge" style="--accent:${m.color}">${esc(l.line)}</span>` : ''}${
+      l.detail || !l.line ? `<span>${esc(l.detail || (l.line ? '' : m.label))}</span>` : ''}</b>`;
+  }
+
   function cardsHTML(trip, day, items) {
     const n = items.length;
     return `
@@ -552,8 +566,8 @@
             <div class="row">
               <div class="ic">${m.icon}</div>
               <div><div class="lbl">Transport${it.legs.length > 1 ? ' · ' + transferText(it.legs.length) : it.legs[0]?.mode ? ' · ' + esc(m.label) : ''}</div>
-                ${it.legs.length > 1 ? `<ol class="legs">${it.legs.map((l) => `<li><span>${modeOf(l.mode).icon}</span><b>${esc(legLabel(l))}</b></li>`).join('')}</ol>`
-                  : `<div class="val ${it.legs.length ? '' : 'muted'}">${it.legs.length ? esc(legLabel(it.legs[0])) : 'Not set'}</div>`}</div>
+                ${it.legs.length > 1 ? `<ol class="legs">${it.legs.map((l) => `<li><span>${modeOf(l.mode).icon}</span>${legHTML(l)}</li>`).join('')}</ol>`
+                  : `<div class="val ${it.legs.length ? '' : 'muted'}">${it.legs.length ? legHTML(it.legs[0]) : 'Not set'}</div>`}</div>
             </div>
             <div class="row">
               <div class="ic">💰</div>
@@ -652,7 +666,7 @@
                 <td>${i + 1}</td>
                 <td class="t">${esc(fmtTime(it.time) || '—')}${it.endTime ? `<br><small>→ ${esc(fmtTime(it.endTime))}</small>` : ''}</td>
                 <td><b>${esc(it.activity)}</b></td>
-                <td>${it.legs.length ? it.legs.map((l) => `${modeOf(l.mode).icon} ${esc(legLabel(l))}`).join('<br>↓ ') : '—'}</td>
+                <td class="legs-cell">${it.legs.length ? it.legs.map((l, k) => `<div class="leg-line">${k ? '<i>↓</i>' : ''}${modeOf(l.mode).icon} ${legHTML(l)}</div>`).join('') : '—'}</td>
                 <td class="fee">${feesBlock(trip, it.fees, true)}</td>
                 <td class="rem">${esc(it.remarks || '')}</td>
               </tr>`;
@@ -729,7 +743,12 @@
           <button type="button" class="rm" data-rmleg="${i}" aria-label="Remove leg ${i + 1}">✕</button></div>` : ''}
         <div class="chips">${MODES.map((m) =>
           `<button type="button" class="chip ${m.id === l.mode ? 'on' : ''}" data-mode="${m.id}">${m.icon} ${esc(m.label)}</button>`).join('')}</div>
-        <input type="text" data-k="detail" value="${esc(l.detail)}" placeholder="e.g. Bus 205 / JR Nara Line / Grab" autocomplete="off" />
+        <div class="leg-fields ${l.mode === 'walk' ? 'no-line' : ''}">
+          <label class="mini"><span data-linelabel>${esc(lineHint(l.mode)[0])}</span>
+            <input type="text" data-k="line" value="${esc(l.line)}" placeholder="${esc(lineHint(l.mode)[1])}" autocomplete="off" /></label>
+          <label class="mini"><span>Details</span>
+            <input type="text" data-k="detail" value="${esc(l.detail)}" placeholder="From / to, platform, exit…" autocomplete="off" /></label>
+        </div>
       </div>`).join('');
   }
   $('#legRows').addEventListener('click', (e) => {
@@ -737,8 +756,15 @@
     const rm = e.target.closest('[data-rmleg]');
     if (chip) {
       const i = Number(chip.closest('[data-leg]').dataset.leg);
-      legDraft[i].mode = chip.dataset.mode;
+      const mode = chip.dataset.mode;
+      legDraft[i].mode = mode;
+      const row = chip.closest('[data-leg]');
       chip.parentElement.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c === chip));
+      // relabel the line box for this mode (Bus no., Train line, Flight no.…) without losing focus/text
+      const [label, ph] = lineHint(mode);
+      row.querySelector('[data-linelabel]').textContent = label;
+      row.querySelector('[data-k=line]').placeholder = ph;
+      row.querySelector('.leg-fields').classList.toggle('no-line', mode === 'walk' && !legDraft[i].line);
     } else if (rm) {
       legDraft.splice(Number(rm.dataset.rmleg), 1);
       renderLegRows();
@@ -746,10 +772,12 @@
   });
   $('#legRows').addEventListener('input', (e) => {
     const row = e.target.closest('[data-leg]');
-    if (row && e.target.dataset.k === 'detail') legDraft[row.dataset.leg].detail = e.target.value;
+    const k = e.target.dataset.k;
+    if (row && (k === 'detail' || k === 'line')) legDraft[row.dataset.leg][k] = e.target.value;
   });
   $('#addLeg').addEventListener('click', () => {
-    legDraft.push({ mode: '', detail: '' });
+    const prev = legDraft[legDraft.length - 1];
+    legDraft.push({ mode: prev && prev.mode !== 'walk' ? prev.mode : '', line: '', detail: '' });
     renderLegRows();
     const rows = $('#legRows').querySelectorAll('.leg-row');
     rows[rows.length - 1]?.scrollIntoView({ block: 'nearest' });
@@ -819,7 +847,7 @@
       feeDraft = [];
     }
     if (!feeDraft.length) feeDraft.push({ label: '', amount: '', currency: trip.currency });
-    if (!legDraft.length) legDraft.push({ mode: '', detail: '' });
+    if (!legDraft.length) legDraft.push({ mode: '', line: '', detail: '' });
     renderLegRows();
     renderFeeRows();
     itemDialog.showModal();
@@ -838,7 +866,7 @@
       .map((x) => ({ id: uid(), label: x.label.trim(), amount: num(x.amount), currency: normCur(x.currency) || trip.currency }));
     const data = {
       time: f.time.value, endTime: f.endTime.value, activity,
-      legs: legDraft.map((l) => ({ mode: l.mode, detail: l.detail.trim() })).filter((l) => l.mode || l.detail),
+      legs: legDraft.map((l) => ({ mode: l.mode, line: (l.line || '').trim(), detail: l.detail.trim() })).filter((l) => l.mode || l.line || l.detail),
       fees, remarks: f.remarks.value.trim(),
     };
     let target;
@@ -1232,13 +1260,14 @@
     trip.costs.forEach((c) => { const v = toBase(trip, c.amount, c.currency); rows.push([c.item, catOf(c.category).label, c.amount, c.currency, c.paidBy, round2(v)]); });
     rows.push([], ['BUDGET ALLOCATIONS'], ['Name', 'Category', 'Amount', 'Currency', `Amount (${B})`]);
     trip.allocs.forEach((a) => { const v = toBase(trip, a.amount, a.currency); rows.push([a.item, catOf(a.category).label, a.amount, a.currency, round2(v)]); });
-    rows.push([], ['ITINERARY'], ['Day', 'Date', 'Day title', 'Time', 'Until', 'Activity', 'Transport mode', 'Transportation', 'Fees', `Fees (${B})`, 'Remarks']);
+    rows.push([], ['ITINERARY'], ['Day', 'Date', 'Day title', 'Time', 'Until', 'Activity', 'Transport mode', 'Bus no. / line', 'Transport details', 'Fees', `Fees (${B})`, 'Remarks']);
     trip.days.forEach((d, i) => {
       sortItems(d.items).forEach((it) => {
         const s = sumBase(trip, it.fees);
         rows.push([
           i + 1, isoOf(i), d.title || '', it.time, it.endTime, it.activity,
-          it.legs.map((l) => modeOf(l.mode).label).join(' → '), it.legs.map(legLabel).join(' → '),
+          it.legs.map((l) => modeOf(l.mode).label).join(' → '), it.legs.map((l) => l.line || '-').join(' | '),
+          it.legs.map((l) => l.detail || '-').join(' | '),
           it.fees.map((f) => `${f.label ? f.label + ': ' : ''}${f.currency} ${f.amount}`).join('; '),
           it.fees.length ? round2(s.total) + (s.missing.size ? ' (+ no rate: ' + [...s.missing].join(', ') + ')' : '') : '',
           it.remarks,
@@ -1322,10 +1351,10 @@
     const today = new Date();
     const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     const fee = (amount, label = '', currency = 'JPY') => ({ id: uid(), label, amount, currency });
-    // legs: 'mode:detail' strings, e.g. 'bus:City Bus 206'
+    // legs: 'mode:line:details' strings, e.g. 'bus:206:To Gojozaka'
     const mk = (time, endTime, activity, legs, fees, remarks) => ({
       id: uid(), time, endTime, activity, fees, remarks,
-      legs: legs.map((x) => { const [mode, ...d] = x.split(':'); return { mode, detail: d.join(':') }; }),
+      legs: legs.map((x) => { const [mode, line, ...d] = x.split(':'); return { mode, line, detail: d.join(':') }; }),
     });
     const sp = (item, amount, paidBy, currency = 'JPY') => ({ id: uid(), item, amount, currency, paidBy });
     const trip = normalizeTrip({
@@ -1343,11 +1372,11 @@
       ],
       days: [
         { title: 'Arrive & explore Kyoto', items: [
-          mk('08:30', '09:45', 'Kansai Airport → Kyoto Station', ['train:JR Haruka Express'], [fee(3600, 'Haruka ticket'), fee(2000, 'ICOCA card deposit')], 'Buy ICOCA & Haruka combo at JR ticket office'),
-          mk('10:15', '10:45', 'Check in luggage at hotel', ['walk:8 min walk from Kyoto Stn'], [], 'Hotel Granvia — check-in from 3 PM'),
-          mk('11:00', '13:30', 'Fushimi Inari Taisha', ['walk:Back to Kyoto Stn', 'train:JR Nara Line to Inari (2 stops)'], [fee(150, 'Train')], 'Go up to Yotsutsuji viewpoint (~45 min hike). Wear good shoes!'),
-          mk('14:30', '17:00', 'Kiyomizu-dera & Sannenzaka', ['train:JR Nara Line back to Kyoto Stn', 'bus:City Bus 206 to Gojozaka'], [fee(230, 'Bus fare'), fee(400, 'Temple entry')], ''),
-          mk('18:30', '', 'Dinner at Pontocho Alley', ['bus:City Bus 207 to Shijo Kawaramachi', 'walk:5 min to Pontocho'], [fee(4000, 'Set menu')], 'Reservation under "Tan" — 7 PM'),
+          mk('08:30', '09:45', 'Kansai Airport → Kyoto Station', ['train:JR Haruka Express:Platform 30, to Kyoto Stn'], [fee(3600, 'Haruka ticket'), fee(2000, 'ICOCA card deposit')], 'Buy ICOCA & Haruka combo at JR ticket office'),
+          mk('10:15', '10:45', 'Check in luggage at hotel', ['walk::8 min from Kyoto Stn, Hachijo exit'], [], 'Hotel Granvia — check-in from 3 PM'),
+          mk('11:00', '13:30', 'Fushimi Inari Taisha', ['walk::Back to Kyoto Stn', 'train:JR Nara Line:To Inari (2 stops)'], [fee(150, 'Train')], 'Go up to Yotsutsuji viewpoint (~45 min hike). Wear good shoes!'),
+          mk('14:30', '17:00', 'Kiyomizu-dera & Sannenzaka', ['train:JR Nara Line:Back to Kyoto Stn', 'bus:206:Bus stop D2 → Gojozaka'], [fee(230, 'Bus fare'), fee(400, 'Temple entry')], ''),
+          mk('18:30', '', 'Dinner at Pontocho Alley', ['bus:207:To Shijo Kawaramachi', 'walk::5 min to Pontocho'], [fee(4000, 'Set menu')], 'Reservation under "Tan" — 7 PM'),
         ], spend: [
           sp('Matcha ice cream ×2', 1000, 'Aina'),
           sp('Omamori charms', 1500, 'Hafiz'),
@@ -1355,14 +1384,14 @@
           sp('Snacks at 7-Eleven', 860, 'Hafiz'),
         ] },
         { title: 'Arashiyama', items: [
-          mk('07:30', '09:00', 'Bamboo Grove (early, before crowds)', ['train:JR Sagano Line to Saga-Arashiyama'], [fee(240)], ''),
-          mk('09:30', '11:00', 'Tenryu-ji Temple', ['walk:'], [fee(500, 'Garden + temple ticket')], ''),
+          mk('07:30', '09:00', 'Bamboo Grove (early, before crowds)', ['train:JR Sagano Line:To Saga-Arashiyama'], [fee(240)], ''),
+          mk('09:30', '11:00', 'Tenryu-ji Temple', ['walk::'], [fee(500, 'Garden + temple ticket')], ''),
           mk('12:00', '', 'Lunch: yudofu', [], [fee(2500)], ''),
         ], spend: [sp('Rickshaw ride', 4000, 'Aina')] },
         { title: 'Osaka day trip', items: [
-          mk('09:00', '09:30', 'Kyoto → Osaka', ['train:JR Special Rapid to Osaka Stn'], [fee(580)], ''),
-          mk('10:00', '12:00', 'Osaka Castle', ['metro:Midosuji Line to Hommachi', 'metro:Chuo Line to Tanimachi 4-chome'], [fee(230, 'Metro'), fee(600, 'Castle entry')], ''),
-          mk('18:00', '', 'Street food in Dotonbori', ['metro:Tanimachi Line to Higashi-Umeda', 'walk:Transfer to Umeda', 'metro:Midosuji Line to Namba'], [fee(3000)], 'Try takoyaki at Wanaka'),
+          mk('09:00', '09:30', 'Kyoto → Osaka', ['train:JR Special Rapid:To Osaka Stn'], [fee(580)], ''),
+          mk('10:00', '12:00', 'Osaka Castle', ['metro:Midosuji Line:To Hommachi', 'metro:Chuo Line:To Tanimachi 4-chome'], [fee(230, 'Metro'), fee(600, 'Castle entry')], ''),
+          mk('18:00', '', 'Street food in Dotonbori', ['metro:Tanimachi Line:To Higashi-Umeda', 'walk::Underground passage to Umeda', 'metro:Midosuji Line:To Namba'], [fee(3000)], 'Try takoyaki at Wanaka'),
         ], spend: [] },
       ],
     });
