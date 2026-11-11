@@ -128,11 +128,15 @@
       <div class="sheet-handle"></div>
       <h2 id="spendDialogTitle">New spending</h2>
       <label class="field">
-        <span>Item *</span>
+        <span id="spendWhatLabel">Item *</span>
         <input type="text" name="what" required placeholder="e.g. Matcha ice cream, souvenirs" autocomplete="off" />
       </label>
+      <div class="field" id="catField">
+        <span>Category</span>
+        <div class="chips" id="catChips"></div>
+      </div>
       <div class="field">
-        <span>Price</span>
+        <span id="spendPriceLabel">Price</span>
         <div class="money">
           <select name="currency" aria-label="Currency"></select>
           <input type="number" name="amount" inputmode="decimal" step="any" min="0" placeholder="0.00" aria-label="Price" />
@@ -145,7 +149,7 @@
           <b id="spendRateTo"></b></div>
       </div>
       <div class="converted" id="spendConverted"></div>
-      <div class="field">
+      <div class="field" id="payerField">
         <span>Who paid</span>
         <div class="chips" id="payerChips"></div>
         <input type="text" name="paidBy" placeholder="Name" autocomplete="off" />

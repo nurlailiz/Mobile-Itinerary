@@ -20,6 +20,21 @@
   ];
   const modeOf = (id) => MODES.find((m) => m.id === id) || MODES[0];
 
+  // Categories for whole-trip costs and budget allocations
+  const CATS = [
+    { id: 'flight', label: 'Flight', icon: '✈️', color: '#0284c7' },
+    { id: 'lodging', label: 'Lodging', icon: '🏨', color: '#7c3aed' },
+    { id: 'meals', label: 'Meals', icon: '🍜', color: '#ea580c' },
+    { id: 'transport', label: 'Transport', icon: '🚆', color: '#2563eb' },
+    { id: 'rental', label: 'Rental', icon: '👘', color: '#db2777' },
+    { id: 'tickets', label: 'Tickets & tours', icon: '🎟', color: '#0d9488' },
+    { id: 'shopping', label: 'Shopping', icon: '🛍', color: '#ca8a04' },
+    { id: 'insurance', label: 'Insurance / visa', icon: '🛡', color: '#16a34a' },
+    { id: 'sim', label: 'SIM / Wi‑Fi', icon: '📶', color: '#0891b2' },
+    { id: 'other', label: 'Other', icon: '🧾', color: '#64748b' },
+  ];
+  const catOf = (id) => CATS.find((c) => c.id === id) || CATS[CATS.length - 1];
+
   // [code, symbol, name]
   const CURRENCIES = [
     ['MYR', 'RM', 'Malaysian ringgit'], ['SGD', 'S$', 'Singapore dollar'], ['IDR', 'Rp', 'Indonesian rupiah'],
@@ -77,9 +92,16 @@
       })),
     }));
     if (!days.length) days.push({ id: uid(), title: '', items: [], spend: [] });
+    const money = (x) => ({
+      id: id(x?.id), item: String(x?.item || catOf(x?.category).label), amount: num(x?.amount),
+      currency: normCur(x?.currency) || currency, paidBy: String(x?.paidBy || ''), category: catOf(x?.category).id,
+    });
     return {
       id: id(t.id), name: String(t.name || 'Trip'), startDate: String(t.startDate || ''),
       base, currency, rates, ratesUpdated: String(t.ratesUpdated || ''), days,
+      costs: (Array.isArray(t.costs) ? t.costs : []).map(money),
+      allocs: (Array.isArray(t.allocs) ? t.allocs : []).map((a) => ({ ...money(a), paidBy: '' })),
+      travellers: Math.max(1, Math.min(99, parseInt(t.travellers, 10) || 1)),
       lastPayer: String(t.lastPayer || ''), lastSpendCurrency: normCur(t.lastSpendCurrency) || '',
     };
   }
@@ -145,7 +167,7 @@
   function tripCurrencies(trip) {
     const set = new Set([trip.currency, ...Object.keys(trip.rates)]);
     tripFees(trip).forEach((f) => set.add(f.currency));
-    tripSpend(trip).forEach((s) => set.add(s.currency));
+    [...tripSpend(trip), ...trip.costs, ...trip.allocs].forEach((s) => set.add(s.currency));
     set.delete(trip.base);
     return [...set].filter(Boolean);
   }
@@ -158,6 +180,16 @@
       : CURRENCIES.map(([c]) => opt(c)).join('');
   }
   const allCurOptions = (selected) => CURRENCIES.map(([c, , name]) => `<option value="${c}" ${c === selected ? 'selected' : ''}>${c} — ${esc(name)}</option>`).join('');
+
+  // Whole-trip estimate = trip costs + budget allocations + activity fees
+  function tripTotals(trip) {
+    const costs = sumBase(trip, trip.costs);
+    const allocs = sumBase(trip, trip.allocs);
+    const fees = sumBase(trip, tripFees(trip));
+    const spent = sumBase(trip, tripSpend(trip));
+    const missing = new Set([...costs.missing, ...allocs.missing, ...fees.missing]);
+    return { costs, allocs, fees, spent, total: { total: costs.total + allocs.total + fees.total, missing } };
+  }
 
   function byPerson(trip, list) {
     const map = new Map();
@@ -172,7 +204,7 @@
   }
   function knownPayers(trip) {
     const count = new Map();
-    tripSpend(trip).forEach((s) => { const p = s.paidBy.trim(); if (p) count.set(p, (count.get(p) || 0) + 1); });
+    [...tripSpend(trip), ...trip.costs].forEach((s) => { const p = s.paidBy.trim(); if (p) count.set(p, (count.get(p) || 0) + 1); });
     return [...count.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
   }
 
@@ -252,7 +284,7 @@
                 ${start ? `<span>📅 ${esc(fmtDate(start, { day: 'numeric', month: 'short' }))}${t.days.length > 1 ? ' – ' + esc(fmtDate(end, { day: 'numeric', month: 'short', year: 'numeric' })) : ''}</span>` : ''}
                 <span>🗓 ${plural(t.days.length, 'day', 'days')}</span>
                 <span>📝 ${plural(items.length, 'activity', 'activities')}</span>
-                <span>💰 Fees ${esc(fmtBase(t, sumBase(t, tripFees(t))))}</span>
+                <span>💰 Total ≈ ${esc(fmtBase(t, tripTotals(t).total))}</span>
                 ${spend.length ? `<span>💸 Spent ${esc(fmtBase(t, sumBase(t, spend)))}</span>` : ''}
               </div>
             </button></li>`;
@@ -282,29 +314,37 @@
   // ---------- Trip ----------
   function renderTrip(trip) {
     document.title = `${trip.name} · Itinerary`;
-    const di = Math.min(ui.dayIndex[trip.id] ?? 0, trip.days.length - 1);
+    // -1 = the Overview dashboard (shown before Day 1, and opened first)
+    const di = Math.min(ui.dayIndex[trip.id] ?? -1, trip.days.length - 1);
     ui.dayIndex[trip.id] = di;
-    const day = trip.days[di];
-    day.items = sortItems(day.items);
-    const items = day.items;
-    const date = dayDate(trip, di);
-    const allSpend = tripSpend(trip);
-
-    app.innerHTML = `
+    const T = tripTotals(trip);
+    const chrome = `
       <header class="topbar">
         <button class="icon-btn" id="back" aria-label="Back">‹</button>
-        <h1>${esc(trip.name)}<small>${plural(trip.days.length, 'day', 'days')} · fees ${esc(fmtBase(trip, sumBase(trip, tripFees(trip))))}${allSpend.length ? ` · spent ${esc(fmtBase(trip, sumBase(trip, allSpend)))}` : ''}</small></h1>
+        <h1>${esc(trip.name)}<small>${plural(trip.days.length, 'day', 'days')} · total ≈ ${esc(fmtBase(trip, T.total))}</small></h1>
         <button class="icon-btn" id="tripMenu" aria-label="Trip options">⋯</button>
       </header>
 
       <nav class="day-tabs" id="dayTabs">
+        <button class="day-tab overview ${di === -1 ? 'active' : ''}" data-day="-1">
+          <b>📊 Overview</b>
+          <span>Costs &amp; budget</span>
+        </button>
         ${trip.days.map((d, i) => `
           <button class="day-tab ${i === di ? 'active' : ''}" data-day="${i}">
             <b>Day ${i + 1}</b>
             <span>${esc(fmtDate(dayDate(trip, i)) || d.title || plural(d.items.length, 'item', 'items'))}</span>
           </button>`).join('')}
         <button class="day-tab add" id="addDay" aria-label="Add day">+</button>
-      </nav>
+      </nav>`;
+    if (di === -1) { renderOverview(trip, chrome, T); return; }
+    const day = trip.days[di];
+    day.items = sortItems(day.items);
+    const items = day.items;
+    const date = dayDate(trip, di);
+
+    app.innerHTML = `
+      ${chrome}
 
       <div class="toolbar">
         <div class="day-title">
@@ -325,28 +365,7 @@
       <button class="fab" id="addItem" aria-label="Add activity">+</button>
     `;
 
-    $('#back').addEventListener('click', () => { location.hash = '#/'; });
-    $('#tripMenu').addEventListener('click', (e) => showMenu(e, [
-      { label: '✎ Edit trip details', fn: () => openTripDialog(trip) },
-      { label: '💱 Currencies & exchange rates', fn: () => openRatesDialog(trip) },
-      { label: '💸 Spending summary (who paid)', fn: () => openSummary(trip) },
-      { label: '📄 Export to Excel (CSV)', fn: () => exportCSV(trip) },
-      { label: '📋 Share / copy this day', fn: () => copyDay(trip, di) },
-      { label: '⬇️ Back up trip (JSON)', fn: () => exportJSON(trip) },
-      { label: '🗑 Delete trip', fn: () => deleteTrip(trip), danger: true },
-    ]));
-    app.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => {
-      ui.dayIndex[trip.id] = Number(b.dataset.day);
-      renderTrip(trip);
-    }));
-    // keep the active tab visible
-    app.querySelector('.day-tab.active')?.scrollIntoView({ block: 'nearest', inline: 'center' });
-    $('#addDay').addEventListener('click', () => {
-      trip.days.push({ id: uid(), title: '', items: [], spend: [] });
-      ui.dayIndex[trip.id] = trip.days.length - 1;
-      save(); renderTrip(trip);
-      toast(`Day ${trip.days.length} added`);
-    });
+    wireTripChrome(trip, di);
     $('#editDay').addEventListener('click', () => openDayDialog(trip, di));
     app.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
       ui.view = b.dataset.view;
@@ -370,6 +389,131 @@
       }));
       $('#sheetAdd')?.addEventListener('click', () => openItemDialog(trip, day));
     }
+  }
+
+  function wireTripChrome(trip, di) {
+    $('#back').addEventListener('click', () => { location.hash = '#/'; });
+    $('#tripMenu').addEventListener('click', (e) => showMenu(e, [
+      { label: '✎ Edit trip details', fn: () => openTripDialog(trip) },
+      { label: '💱 Currencies & exchange rates', fn: () => openRatesDialog(trip) },
+      { label: '📊 Overview (costs & budget)', fn: () => { ui.dayIndex[trip.id] = -1; renderTrip(trip); } },
+      { label: '💸 Spending summary (who paid)', fn: () => openSummary(trip) },
+      { label: '📄 Export to Excel (CSV)', fn: () => exportCSV(trip) },
+      ...(di >= 0 ? [{ label: '📋 Share / copy this day', fn: () => copyDay(trip, di) }] : []),
+      { label: '⬇️ Back up trip (JSON)', fn: () => exportJSON(trip) },
+      { label: '🗑 Delete trip', fn: () => deleteTrip(trip), danger: true },
+    ]));
+    app.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => {
+      ui.dayIndex[trip.id] = Number(b.dataset.day);
+      renderTrip(trip);
+    }));
+    // keep the active tab visible
+    app.querySelector('.day-tab.active')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    $('#addDay').addEventListener('click', () => {
+      trip.days.push({ id: uid(), title: '', items: [], spend: [] });
+      ui.dayIndex[trip.id] = trip.days.length - 1;
+      save(); renderTrip(trip);
+      toast(`Day ${trip.days.length} added`);
+    });
+  }
+
+  // ---------- Overview dashboard ----------
+  function moneyRow(trip, x, attr, sub) {
+    const v = toBase(trip, x.amount, x.currency);
+    const c = catOf(x.category);
+    return `<li><button class="spend-item" ${attr}="${x.id}">
+      <span class="cat-ic" style="--accent:${c.color}">${c.icon}</span>
+      <div class="what"><b>${esc(x.item)}</b><small>${sub}</small></div>
+      <div class="amt"><b>${esc(fmtMoney(x.amount, x.currency))}</b>
+        ${x.currency !== trip.base ? `<small>${v == null ? '<span class="warn">set rate</span>' : '≈ ' + esc(fmtMoney(v, trip.base, true))}</small>` : ''}</div>
+    </button></li>`;
+  }
+
+  function renderOverview(trip, chrome, T) {
+    const B = trip.base;
+    const grand = T.total.total;
+    const pct = (v) => (grand > 0 ? (v / grand) * 100 : 0);
+    const segs = [
+      { label: 'Trip costs', v: T.costs, color: '#0284c7' },
+      { label: 'Budget allocations', v: T.allocs, color: '#f59e0b' },
+      { label: 'Activity fees (from days)', v: T.fees, color: '#14b8a6' },
+    ];
+    const left = T.allocs.total - T.spent.total;
+    const n = trip.travellers;
+    app.innerHTML = `
+      ${chrome}
+
+      <section class="dash-hero">
+        <div class="lbl">Estimated total trip cost</div>
+        <div class="big">${esc(fmtBase(trip, T.total))}</div>
+        <div class="pp">
+          <span>≈ <b>${esc(fmtMoney(grand / n, B, true))}</b> per person</span>
+          <span class="stepper" aria-label="Number of travellers">
+            <button data-trav="-1" aria-label="Fewer travellers">−</button>
+            <span>👥 ${n}</span>
+            <button data-trav="1" aria-label="More travellers">+</button>
+          </span>
+        </div>
+        <div class="bar">${segs.map((g) => `<i style="width:${pct(g.v.total)}%;background:${g.color}"></i>`).join('')}</div>
+        <ul class="legend">
+          ${segs.map((g) => `<li><i style="background:${g.color}"></i><span>${g.label}</span><b>${esc(fmtBase(trip, g.v))}</b></li>`).join('')}
+        </ul>
+        ${T.total.missing.size ? `<div class="warn" style="font-size:.82rem;margin-top:6px">* No exchange rate yet for ${esc([...T.total.missing].join(', '))} — not counted. <button class="link-btn" id="dashRates">Set rates</button></div>` : ''}
+      </section>
+
+      <section class="spend">
+        <div class="spend-head"><h2>✈️ Trip costs</h2><span class="muted-note">Flights, rentals, bookings…</span></div>
+        ${trip.costs.length ? `<ul class="spend-list">${trip.costs.map((c) => moneyRow(trip, c, 'data-cost',
+          `${esc(catOf(c.category).label)}${c.paidBy ? ' · paid by ' + esc(c.paidBy) : ''}`)).join('')}</ul>`
+          : '<div class="spend-empty">Add costs for the whole trip — e.g. flights, hotel bookings, hanbok rental, insurance.</div>'}
+        <button class="btn add-row-btn" id="addCost">+ Add trip cost</button>
+        <div class="spend-foot"><div class="line"><span>Total trip costs</span><b>${esc(fmtBase(trip, T.costs))}</b></div></div>
+      </section>
+
+      <section class="spend">
+        <div class="spend-head"><h2>🍱 Budget allocations</h2><span class="muted-note">Money set aside</span></div>
+        ${trip.allocs.length ? `<ul class="spend-list">${trip.allocs.map((a) => moneyRow(trip, a, 'data-alloc', esc(catOf(a.category).label))).join('')}</ul>`
+          : '<div class="spend-empty">Set aside money for things like meals, lodging, transport and shopping.</div>'}
+        <button class="btn add-row-btn" id="addAlloc">+ Add allocation</button>
+        <div class="spend-foot">
+          <div class="line"><span>Allocated</span><b>${esc(fmtBase(trip, T.allocs))}</b></div>
+          <div class="line"><span>Spent during trip (daily spending)</span><b>${esc(fmtBase(trip, T.spent))}</b></div>
+          ${trip.allocs.length ? `<div class="meter"><i style="width:${Math.min(100, T.allocs.total ? (T.spent.total / T.allocs.total) * 100 : 0)}%" class="${left < 0 ? 'over' : ''}"></i></div>
+          <div class="line grand"><span>${left < 0 ? 'Over budget by' : 'Left to spend'}</span><b class="${left < 0 ? 'warn' : ''}">${esc(fmtMoney(Math.abs(left), B, true))}</b></div>` : ''}
+        </div>
+      </section>
+
+      <section class="spend">
+        <div class="spend-head"><h2>🗓 Days</h2></div>
+        <ul class="spend-list">
+          ${trip.days.map((d, i) => `<li><button class="spend-item" data-goday="${i}">
+            <span class="cat-ic">${i + 1}</span>
+            <div class="what"><b>${esc(d.title || 'Day ' + (i + 1))}</b><small>${esc(fmtDate(dayDate(trip, i)) || '')}${dayDate(trip, i) ? ' · ' : ''}${plural(d.items.length, 'activity', 'activities')}</small></div>
+            <div class="amt"><b>${esc(fmtBase(trip, sumBase(trip, itemFees(d.items))))}</b><small>spent ${esc(fmtBase(trip, sumBase(trip, d.spend)))}</small></div>
+          </button></li>`).join('')}
+        </ul>
+      </section>
+      <div class="after-spend"></div>
+
+      <button class="fab" id="addCostFab" aria-label="Add trip cost">+</button>
+    `;
+    wireTripChrome(trip, -1);
+    document.onkeydown = null;
+    app.querySelectorAll('[data-trav]').forEach((b) => b.addEventListener('click', () => {
+      trip.travellers = Math.max(1, Math.min(99, trip.travellers + Number(b.dataset.trav)));
+      save(); renderTrip(trip);
+    }));
+    app.querySelectorAll('[data-cost]').forEach((b) => b.addEventListener('click', () =>
+      openMoneyDialog('cost', trip, trip.costs, trip.costs.find((x) => x.id === b.dataset.cost))));
+    app.querySelectorAll('[data-alloc]').forEach((b) => b.addEventListener('click', () =>
+      openMoneyDialog('alloc', trip, trip.allocs, trip.allocs.find((x) => x.id === b.dataset.alloc))));
+    app.querySelectorAll('[data-goday]').forEach((b) => b.addEventListener('click', () => {
+      ui.dayIndex[trip.id] = Number(b.dataset.goday); renderTrip(trip); window.scrollTo(0, 0);
+    }));
+    $('#addCost').addEventListener('click', () => openMoneyDialog('cost', trip, trip.costs));
+    $('#addCostFab').addEventListener('click', () => openMoneyDialog('cost', trip, trip.costs));
+    $('#addAlloc').addEventListener('click', () => openMoneyDialog('alloc', trip, trip.allocs));
+    $('#dashRates')?.addEventListener('click', () => openRatesDialog(trip));
   }
 
   // Fee lines for a card / table cell
@@ -697,10 +841,16 @@
     toast('Duplicated');
   });
 
-  // ---------- Spending dialog ----------
+  // ---------- Money dialog (daily spending, trip costs, budget allocations) ----------
   const spendDialog = $('#spendDialog');
   const spendForm = $('#spendForm');
   let spendCtx = null;
+  let selectedCat = '';
+  const KIND = {
+    spend: { title: 'spending', what: 'Item *', ph: 'e.g. Matcha ice cream, souvenirs', toast: 'Spending' },
+    cost: { title: 'trip cost', what: 'Item *', ph: 'e.g. Return flight KUL–ICN, hanbok rental', toast: 'Cost' },
+    alloc: { title: 'allocation', what: 'Name (optional)', ph: 'e.g. Meals for 5 days', toast: 'Allocation' },
+  };
 
   function updateSpendPreview() {
     const { trip } = spendCtx;
@@ -736,52 +886,74 @@
     $('#payerChips').innerHTML = knownPayers(spendCtx.trip).map((p) =>
       `<button type="button" class="chip ${p === cur ? 'on' : ''}" data-payer="${esc(p)}">🙋 ${esc(p)}</button>`).join('');
   }
+  function renderCatChips() {
+    $('#catChips').innerHTML = CATS.map((c) =>
+      `<button type="button" class="chip ${c.id === selectedCat ? 'on' : ''}" data-cat="${c.id}">${c.icon} ${esc(c.label)}</button>`).join('');
+  }
+  $('#catChips').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-cat]');
+    if (!b) return;
+    selectedCat = b.dataset.cat;
+    renderCatChips();
+  });
 
-  function openSpendDialog(trip, day, sp) {
-    spendCtx = { trip, day, sp };
+  // kind: 'spend' (list = day.spend) | 'cost' (trip.costs) | 'alloc' (trip.allocs)
+  function openMoneyDialog(kind, trip, list, sp) {
+    spendCtx = { kind, trip, list, sp };
+    const K = KIND[kind];
     spendForm.reset();
     const f = spendForm.elements;
-    $('#spendDialogTitle').textContent = sp ? 'Edit spending' : 'New spending';
+    $('#spendDialogTitle').textContent = `${sp ? 'Edit' : 'New'} ${K.title}`;
+    $('#spendWhatLabel').textContent = K.what;
+    f.what.placeholder = K.ph;
+    f.what.required = kind !== 'alloc';
+    $('#spendPriceLabel').textContent = kind === 'alloc' ? 'Amount set aside' : 'Price';
+    $('#catField').style.display = kind === 'spend' ? 'none' : '';
+    $('#payerField').style.display = kind === 'alloc' ? 'none' : '';
     $('#spendDelete').style.display = sp ? '' : 'none';
-    const code = sp ? sp.currency : (trip.lastSpendCurrency || trip.currency);
+    const code = sp ? sp.currency : (kind === 'spend' ? trip.lastSpendCurrency || trip.currency : kind === 'alloc' ? trip.base : trip.currency);
     f.currency.innerHTML = curOptions(trip, code);
     f.currency.value = code;
     f.rate.value = fmtRate(rateOf(trip, code));
+    selectedCat = sp ? sp.category || '' : (kind === 'alloc' ? 'meals' : kind === 'cost' ? 'flight' : '');
     if (sp) {
       f.what.value = sp.item;
       f.amount.value = sp.amount || '';
-      f.paidBy.value = sp.paidBy;
+      f.paidBy.value = sp.paidBy || '';
     } else {
-      f.paidBy.value = trip.lastPayer || '';
+      f.paidBy.value = kind === 'spend' ? trip.lastPayer || '' : '';
     }
+    renderCatChips();
     renderPayerChips();
     updateSpendPreview();
     spendDialog.showModal();
     spendDialog.scrollTop = 0;
     if (!sp) setTimeout(() => f.what.focus(), 50);
   }
+  const openSpendDialog = (trip, day, sp) => openMoneyDialog('spend', trip, day.spend, sp);
+
   spendForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const f = spendForm.elements;
-    const itemName = f.what.value.trim();
+    const { kind, trip, list, sp } = spendCtx;
+    const itemName = f.what.value.trim() || (kind === 'alloc' ? catOf(selectedCat).label : '');
     if (!itemName) { f.what.focus(); return; }
-    const { trip, day, sp } = spendCtx;
     const currency = normCur(f.currency.value) || trip.currency;
     const rate = num(f.rate.value);
     if (currency !== trip.base && rate > 0) trip.rates[currency] = rate;
-    const data = { item: itemName, amount: num(f.amount.value), currency, paidBy: f.paidBy.value.trim() };
+    const data = { item: itemName, amount: num(f.amount.value), currency, paidBy: kind === 'alloc' ? '' : f.paidBy.value.trim() };
+    if (kind !== 'spend') data.category = selectedCat;
     if (sp) Object.assign(sp, data);
-    else day.spend.push({ id: uid(), ...data });
-    trip.lastPayer = data.paidBy;
-    trip.lastSpendCurrency = currency;
+    else list.push({ id: uid(), ...data });
+    if (kind === 'spend') { trip.lastPayer = data.paidBy; trip.lastSpendCurrency = currency; }
     save(); spendDialog.close(); renderTrip(trip);
-    toast(sp ? 'Saved' : 'Spending added');
+    toast(sp ? 'Saved' : `${KIND[kind].toast} added`);
   });
   $('#spendCancel').addEventListener('click', () => spendDialog.close());
   $('#spendDelete').addEventListener('click', () => {
-    const { trip, day, sp } = spendCtx;
+    const { trip, list, sp } = spendCtx;
     if (!confirm(`Delete "${sp.item}"?`)) return;
-    day.spend = day.spend.filter((x) => x !== sp);
+    list.splice(list.indexOf(sp), 1);
     save(); spendDialog.close(); renderTrip(trip);
     toast('Deleted');
   });
@@ -866,7 +1038,8 @@
     const spend = tripSpend(trip);
     const fees = sumBase(trip, tripFees(trip));
     const spent = sumBase(trip, spend);
-    const people = byPerson(trip, spend);
+    const costs = sumBase(trip, trip.costs);
+    const people = byPerson(trip, [...trip.costs, ...spend]);
     const dlg = document.createElement('dialog');
     dlg.className = 'sheet';
     dlg.innerHTML = `<form method="dialog">
@@ -878,14 +1051,17 @@
           const s = sumBase(trip, d.spend);
           return `<tr><td>Day ${i + 1}${d.title ? ' · ' + esc(d.title) : ''}</td><td>${esc(fmtBase(trip, s))}</td></tr>`;
         }).join('')}
-        <tr><td><b>Total spent</b></td><td>${esc(fmtBase(trip, spent))}</td></tr>
+        <tr><td><b>Total daily spending</b></td><td>${esc(fmtBase(trip, spent))}</td></tr>
+        <tr><td>✈️ Trip costs (flights, rentals…)</td><td>${esc(fmtBase(trip, costs))}</td></tr>
+        <tr><td><b>Paid so far</b></td><td>${esc(fmtMoney(spent.total + costs.total, trip.base, true))}</td></tr>
       </tbody></table>
       <h2 style="font-size:1rem">Who paid</h2>
       ${people.length ? `<table class="summary-table"><tbody>
         ${people.map(([who, v]) => `<tr><td>🙋 ${esc(who)}</td><td>${esc(fmtBase(trip, v))}</td></tr>`).join('')}
       </tbody></table>` : '<p class="muted-note">No spending recorded yet.</p>'}
       <p class="muted-note">Planned activity fees for the whole trip: <b>${esc(fmtBase(trip, fees))}</b></p>
-      ${spent.missing.size || fees.missing.size ? `<p class="warn" style="margin:0;font-size:.85rem">* Some amounts have no exchange rate yet and are not counted.</p>` : ''}
+      <p class="muted-note">“Who paid” includes trip costs and daily spending.</p>
+      ${spent.missing.size || fees.missing.size || costs.missing.size ? `<p class="warn" style="margin:0;font-size:.85rem">* Some amounts have no exchange rate yet and are not counted.</p>` : ''}
       <div class="sheet-actions"><span class="spacer"></span><button class="btn primary">Close</button></div>
     </form>`;
     document.body.appendChild(dlg);
@@ -937,7 +1113,7 @@
     const name = f.name.value.trim();
     if (!name) { f.name.focus(); return; }
     const count = Math.max(1, Math.min(60, parseInt(f.dayCount.value, 10) || 1));
-    const trip = tripCtx || { id: uid(), days: [], rates: {}, base: f.base.value };
+    const trip = tripCtx || { id: uid(), days: [], rates: {}, base: f.base.value, costs: [], allocs: [], travellers: 1 };
     trip.name = name;
     trip.startDate = f.startDate.value;
     trip.currency = normCur(f.currency.value) || 'MYR';
@@ -1017,7 +1193,16 @@
       const date = dayDate(trip, i);
       return date ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}` : '';
     };
-    const rows = [['ITINERARY'], ['Day', 'Date', 'Day title', 'Time', 'Until', 'Activity', 'Transport mode', 'Transportation', 'Fees', `Fees (${B})`, 'Remarks']];
+    const T = tripTotals(trip);
+    const rows = [['OVERVIEW'], ['', `Amount (${B})`],
+      ['Trip costs', round2(T.costs.total)], ['Budget allocations', round2(T.allocs.total)],
+      ['Activity fees', round2(T.fees.total)], ['ESTIMATED TOTAL', round2(T.total.total)],
+      [`Per person (${trip.travellers})`, round2(T.total.total / trip.travellers)], ['Daily spending so far', round2(T.spent.total)], []];
+    rows.push(['TRIP COSTS'], ['Item', 'Category', 'Price', 'Currency', 'Who paid', `Price (${B})`]);
+    trip.costs.forEach((c) => { const v = toBase(trip, c.amount, c.currency); rows.push([c.item, catOf(c.category).label, c.amount, c.currency, c.paidBy, round2(v)]); });
+    rows.push([], ['BUDGET ALLOCATIONS'], ['Name', 'Category', 'Amount', 'Currency', `Amount (${B})`]);
+    trip.allocs.forEach((a) => { const v = toBase(trip, a.amount, a.currency); rows.push([a.item, catOf(a.category).label, a.amount, a.currency, round2(v)]); });
+    rows.push([], ['ITINERARY'], ['Day', 'Date', 'Day title', 'Time', 'Until', 'Activity', 'Transport mode', 'Transportation', 'Fees', `Fees (${B})`, 'Remarks']);
     trip.days.forEach((d, i) => {
       sortItems(d.items).forEach((it) => {
         const s = sumBase(trip, it.fees);
@@ -1038,8 +1223,8 @@
       rows.push([i + 1, isoOf(i), s.item, s.amount, s.currency, s.paidBy, r || '', r ? round2(s.amount * r) : '']);
     }));
     rows.push(['', '', 'TOTAL SPENT', '', '', '', '', round2(sumBase(trip, tripSpend(trip)).total)]);
-    rows.push([], ['WHO PAID'], ['Person', `Total (${B})`]);
-    byPerson(trip, tripSpend(trip)).forEach(([who, v]) => rows.push([who, round2(v.total)]));
+    rows.push([], ['WHO PAID (trip costs + spending)'], ['Person', `Total (${B})`]);
+    byPerson(trip, [...trip.costs, ...tripSpend(trip)]).forEach(([who, v]) => rows.push([who, round2(v.total)]));
 
     // BOM so Excel opens UTF‑8 (emoji, accents, CJK) correctly
     download(`${safeName(trip.name)}.csv`, '﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
@@ -1112,7 +1297,17 @@
     const sp = (item, amount, paidBy, currency = 'JPY') => ({ id: uid(), item, amount, currency, paidBy });
     const trip = normalizeTrip({
       id: uid(), name: 'Kyoto & Osaka (sample)', startDate: iso, currency: 'JPY', base: 'MYR',
-      rates: { JPY: 0.029, USD: 4.2 },
+      rates: { JPY: 0.029, USD: 4.2 }, travellers: 2,
+      costs: [
+        { item: 'Return flight KUL–KIX ×2', category: 'flight', amount: 2380, currency: 'MYR', paidBy: 'Aina' },
+        { item: 'Hotel Granvia, 3 nights', category: 'lodging', amount: 66000, currency: 'JPY', paidBy: 'Hafiz' },
+        { item: 'Kimono rental ×2', category: 'rental', amount: 9000, currency: 'JPY', paidBy: 'Aina' },
+        { item: 'Travel insurance', category: 'insurance', amount: 120, currency: 'MYR', paidBy: 'Hafiz' },
+      ],
+      allocs: [
+        { item: 'Meals', category: 'meals', amount: 600, currency: 'MYR' },
+        { item: 'Shopping & souvenirs', category: 'shopping', amount: 400, currency: 'MYR' },
+      ],
       days: [
         { title: 'Arrive & explore Kyoto', items: [
           mk('08:30', '09:45', 'Kansai Airport → Kyoto Station', 'train', 'JR Haruka Express', [fee(3600, 'Haruka ticket'), fee(2000, 'ICOCA card deposit')], 'Buy ICOCA & Haruka combo at JR ticket office'),

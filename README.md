@@ -21,6 +21,13 @@ Each **day** also has a **Spending** list, shown under the itinerary:
 | Who paid | Aina |
 | Price in RM (automatic) | RM 29.00 |
 
+Before Day 1 there's a **📊 Overview** dashboard for the whole trip:
+
+- **Trip costs**: flights, hotel bookings, hanbok rental, insurance… (item, category, price in any currency, who paid)
+- **Budget allocations**: money set aside for meals, lodging, transport, shopping…, compared against what you've spent day by day
+- **Estimated total trip cost** = trip costs + allocations + activity fees, with a per-person amount (set the number of travellers)
+- A list of the days with each day's fees and spending
+
 ## Features
 
 - **Card view**: swipe left/right through the day's activities one at a time. Tap a card to edit it.
