@@ -9,8 +9,17 @@ Each **row** (activity) holds:
 | Time (+ optional end time) | 08:30 → 09:45 |
 | Activity | Kansai Airport → Kyoto Station |
 | Transportation (mode + details) | 🚆 Train · *JR Haruka Express* / 🚌 Bus · *Bus 205* |
-| Fee | ¥ 3,600 |
+| Fees (as many as you need, each in any currency) | Ticket ¥ 3,600 + Express pass US$ 50 → ≈ RM 494.20 |
 | Remarks | Buy ICOCA & Haruka combo at ticket office |
+
+Each **day** also has a **Spending** list, shown under the itinerary:
+
+| Field | Example |
+|---|---|
+| Item | Matcha ice cream |
+| Price (any currency) | ¥ 1,000 |
+| Who paid | Aina |
+| Price in RM (automatic) | RM 29.00 |
 
 ## Features
 
@@ -18,8 +27,11 @@ Each **row** (activity) holds:
 - **Sheet view**: the same day as a table, like Excel, with a total row. Tap a row to edit it.
 - **Trips & days**: set a start date and the number of days. Each day shows its date and can have a title (e.g. "Arashiyama").
 - Activities are **sorted by time** automatically. A new activity starts at the time the previous one ends.
-- **Totals**: fees add up per day and per trip, in the currency you choose (RM, $, ¥, €…).
-- **Export to Excel (CSV)**, **share or copy a day as text**, and **JSON backup/restore**.
+- **Multiple fees per activity**, each in its own currency (e.g. a ticket in ¥ and a pass in US$).
+- **Daily spending** with item, price, who paid, and the price converted to RM. The day shows a total and a per-person breakdown.
+- **Spending summary** (⋯ menu) lists the total for each day and how much each person paid over the whole trip.
+- **Currencies & rates** (⋯ menu or 💱 Rates): type exchange rates yourself or tap *Get latest rates*. Totals are converted to RM by default. You can change this under *Edit trip → Convert totals to*.
+- **Export to Excel (CSV)** with itinerary, spending and who-paid sections, **share or copy a day as text**, and **JSON backup/restore**.
 - **Works offline** and can be **installed on your home screen** (PWA). Light and dark mode.
 - Data stays on your device in browser storage. There are no accounts and no server.
 

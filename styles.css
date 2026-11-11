@@ -236,3 +236,59 @@ textarea { resize: vertical; }
   opacity: 0; pointer-events: none; transition: all .25s; z-index: 50; white-space: nowrap;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- Money / fees ---------- */
+.btn.small { padding: 7px 14px; font-size: .88rem; }
+.btn.dashed { background: transparent; border: 1.5px dashed var(--line); color: var(--brand); justify-self: start; }
+.fee-rows { display: grid; gap: 10px; }
+.fee-row { display: grid; grid-template-columns: 96px 1fr 40px; gap: 6px; padding: 10px; border-radius: 16px; background: var(--surface-2); }
+.fee-row .label { grid-column: 1 / -1; }
+.fee-row input, .fee-row select, .money select, .money input { padding: 10px 12px; }
+.fee-row .rm { width: 40px; height: 44px; border: 0; background: none; color: var(--muted); font-size: 1.3rem; }
+.money { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; }
+.convert-hint { font-size: .85rem; color: var(--muted); }
+.convert-hint b { color: var(--text); }
+.convert-hint button, .link-btn { border: 0; background: none; padding: 0; color: var(--brand); font-weight: 600; font-size: inherit; }
+.rate-line { display: flex; align-items: center; gap: 8px; font-size: .95rem; }
+.rate-line input { flex: 1; }
+.converted { font-size: 1rem; color: var(--muted); }
+.converted b { color: var(--text); font-size: 1.25rem; }
+.muted-note { margin: 0; color: var(--muted); font-size: .88rem; }
+.rates-list { display: grid; gap: 8px; }
+.rates-list .rate-line { background: var(--surface-2); padding: 8px 10px; border-radius: 14px; }
+.rates-list .rate-line b { min-width: 38px; }
+.rates-list .rm { border: 0; background: none; color: var(--muted); font-size: 1.2rem; width: 32px; }
+.warn { color: #b45309; }
+@media (prefers-color-scheme: dark) { .warn { color: #fbbf24; } }
+
+.card .fee-line { display: flex; justify-content: space-between; gap: 10px; }
+.card .fee-line span:first-child { font-weight: 500; color: var(--muted); }
+.card .fee-sum { font-size: .85rem; color: var(--muted); font-weight: 500; margin-top: 2px; }
+.card .row > div:last-child { flex: 1; min-width: 0; }
+td.fee small { color: var(--muted); }
+
+/* ---------- Spending ---------- */
+.spend { margin: 14px 12px 0; background: var(--surface); border-radius: 22px; box-shadow: var(--shadow); overflow: hidden; }
+.spend-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 6px; }
+.spend-head h2 { margin: 0; font-size: 1.05rem; }
+.spend-list { list-style: none; margin: 0; padding: 0; }
+.spend-item { display: flex; width: 100%; gap: 12px; align-items: center; text-align: left; border: 0; background: none; padding: 12px 16px; border-top: 1px solid var(--line); }
+.spend-item:active { background: var(--surface-2); }
+.spend-item .what { flex: 1; min-width: 0; }
+.spend-item .what b { display: block; word-break: break-word; }
+.spend-item .what small, .spend-item .amt small { color: var(--muted); font-size: .8rem; }
+.spend-item .amt { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.spend-item .amt b { display: block; }
+.spend-empty { padding: 4px 16px 10px; color: var(--muted); font-size: .9rem; }
+.spend .add-row-btn { margin: 4px 12px 12px; width: calc(100% - 24px); }
+.spend-foot { background: var(--surface-2); padding: 12px 16px; display: grid; gap: 6px; font-size: .9rem; }
+.spend-foot .line { display: flex; justify-content: space-between; gap: 8px; }
+.spend-foot .line b { font-variant-numeric: tabular-nums; }
+.spend-foot .people { display: flex; flex-wrap: wrap; gap: 6px; }
+.spend-foot .people span { background: var(--surface); border-radius: 999px; padding: 3px 10px; font-size: .82rem; }
+.spend-foot .grand { font-size: 1rem; border-top: 1px solid var(--line); padding-top: 6px; }
+.after-spend { height: 110px; }
+
+/* Trip spending summary */
+.summary-table { width: 100%; min-width: 0; font-size: .95rem; }
+.summary-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }

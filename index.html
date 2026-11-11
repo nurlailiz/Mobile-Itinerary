@@ -44,13 +44,12 @@
         <input type="text" name="transport" placeholder="e.g. Bus 205 / JR Nara Line / Grab" autocomplete="off" />
       </div>
 
-      <label class="field">
-        <span>Fee</span>
-        <div class="input-prefix">
-          <b id="feeCurrency"></b>
-          <input type="number" name="fee" inputmode="decimal" step="0.01" min="0" placeholder="0.00" />
-        </div>
-      </label>
+      <div class="field">
+        <span>Fees</span>
+        <div id="feeRows" class="fee-rows"></div>
+        <button type="button" class="btn small dashed" id="addFee">+ Add another fee</button>
+        <div class="convert-hint" id="feeTotal"></div>
+      </div>
 
       <label class="field">
         <span>Remarks</span>
@@ -86,10 +85,16 @@
           <input type="number" name="dayCount" min="1" max="60" value="1" inputmode="numeric" />
         </label>
       </div>
-      <label class="field">
-        <span>Currency symbol</span>
-        <input type="text" name="currency" maxlength="5" placeholder="RM, $, ¥, €…" autocomplete="off" />
-      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>Main currency</span>
+          <select name="currency"></select>
+        </label>
+        <label class="field">
+          <span>Convert totals to</span>
+          <select name="base"></select>
+        </label>
+      </div>
       <div class="sheet-actions">
         <button type="button" class="btn ghost danger" id="tripDelete">Delete trip</button>
         <span class="spacer"></span>
@@ -112,6 +117,63 @@
         <button type="button" class="btn ghost danger" id="dayDelete">Delete day</button>
         <span class="spacer"></span>
         <button type="button" class="btn ghost" id="dayCancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Spending editor -->
+  <dialog id="spendDialog" class="sheet">
+    <form id="spendForm" method="dialog">
+      <div class="sheet-handle"></div>
+      <h2 id="spendDialogTitle">New spending</h2>
+      <label class="field">
+        <span>Item *</span>
+        <input type="text" name="what" required placeholder="e.g. Matcha ice cream, souvenirs" autocomplete="off" />
+      </label>
+      <div class="field">
+        <span>Price</span>
+        <div class="money">
+          <select name="currency" aria-label="Currency"></select>
+          <input type="number" name="amount" inputmode="decimal" step="any" min="0" placeholder="0.00" aria-label="Price" />
+        </div>
+      </div>
+      <div class="field" id="spendRateField">
+        <span>Exchange rate</span>
+        <div class="rate-line">1 <b id="spendRateFrom"></b> =
+          <input type="number" name="rate" inputmode="decimal" step="any" min="0" placeholder="rate" aria-label="Exchange rate" />
+          <b id="spendRateTo"></b></div>
+      </div>
+      <div class="converted" id="spendConverted"></div>
+      <div class="field">
+        <span>Who paid</span>
+        <div class="chips" id="payerChips"></div>
+        <input type="text" name="paidBy" placeholder="Name" autocomplete="off" />
+      </div>
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost danger" id="spendDelete">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="spendCancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Currencies & exchange rates -->
+  <dialog id="ratesDialog" class="sheet">
+    <form id="ratesForm" method="dialog">
+      <div class="sheet-handle"></div>
+      <h2>Currencies &amp; rates</h2>
+      <p class="muted-note" id="ratesNote"></p>
+      <div id="ratesList" class="rates-list"></div>
+      <div class="money">
+        <select id="ratesAddSel" aria-label="Add currency"></select>
+        <button type="button" class="btn small" id="ratesAdd">+ Add currency</button>
+      </div>
+      <button type="button" class="btn" id="ratesFetch">🔄 Get latest rates (needs internet)</button>
+      <div class="sheet-actions">
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="ratesCancel">Cancel</button>
         <button type="submit" class="btn primary">Save</button>
       </div>
     </form>
