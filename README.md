@@ -8,7 +8,7 @@ Each **row** (activity) holds:
 |---|---|
 | Time (+ optional end time) | 08:30 → 09:45 |
 | Activity | Kansai Airport → Kyoto Station |
-| Transportation (mode + details) | 🚆 Train · *JR Haruka Express* / 🚌 Bus · *Bus 205* |
+| Transportation (one or more legs, for transfers) | 🚌 Bus 205 → 🚆 JR Nara Line |
 | Fees (as many as you need, each in any currency) | Ticket ¥ 3,600 + Express pass US$ 50 → ≈ RM 494.20 |
 | Remarks | Buy ICOCA & Haruka combo at ticket office |
 

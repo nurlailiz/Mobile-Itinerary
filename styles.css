@@ -322,3 +322,19 @@ td.fee small { color: var(--muted); }
 .meter { height: 8px; border-radius: 5px; background: var(--line); overflow: hidden; }
 .meter i { display: block; height: 100%; background: var(--brand-2); border-radius: 5px; }
 .meter i.over { background: var(--danger); }
+
+/* ---------- Transport legs ---------- */
+.leg-rows { display: grid; gap: 6px; }
+.leg-row { display: grid; gap: 8px; padding: 10px; border-radius: 16px; background: var(--surface-2); }
+.leg-row input { padding: 10px 12px; }
+.leg-head { display: flex; justify-content: space-between; align-items: center; min-height: 0; }
+.leg-head b { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.leg-head .rm { border: 0; background: none; color: var(--muted); font-size: 1.1rem; width: 32px; height: 28px; }
+.transfer-mark { text-align: center; font-size: .8rem; font-weight: 600; color: var(--brand); }
+.card .legs { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 0; }
+.card .legs li { display: flex; gap: 8px; align-items: baseline; position: relative; padding: 3px 0 3px 0; }
+.card .legs li + li::before {
+  content: "↓"; position: absolute; left: 4px; top: -11px; font-size: .7rem; color: var(--muted);
+}
+.card .legs li + li { margin-top: 6px; }
+.card .legs b { font-weight: 600; word-break: break-word; }

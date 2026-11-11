@@ -19,6 +19,9 @@
     { id: 'other', label: 'Other', icon: '🧭', color: '#db2777' },
   ];
   const modeOf = (id) => MODES.find((m) => m.id === id) || MODES[0];
+  const legLabel = (l) => l.detail || modeOf(l.mode).label;
+  const legsText = (legs) => legs.map((l) => `${modeOf(l.mode).icon} ${legLabel(l)}`).join(' → ');
+  const transferText = (n) => (n > 1 ? `${n - 1} transfer${n > 2 ? 's' : ''}` : '');
 
   // Categories for whole-trip costs and budget allocations
   const CATS = [
@@ -79,8 +82,11 @@
       items: (Array.isArray(d?.items) ? d.items : []).map((it) => ({
         id: id(it?.id),
         time: String(it?.time || ''), endTime: String(it?.endTime || ''),
-        activity: String(it?.activity || 'Untitled'), mode: modeOf(it?.mode).id,
-        transport: String(it?.transport || ''),
+        activity: String(it?.activity || 'Untitled'),
+        // v1/v2 had a single mode + transport text; now a list of legs (for transfers)
+        legs: (Array.isArray(it?.legs) ? it.legs : (it?.mode || it?.transport ? [{ mode: it.mode, detail: it.transport }] : []))
+          .map((l) => ({ mode: modeOf(l?.mode).id, detail: String(l?.detail || '').trim() }))
+          .filter((l) => l.mode || l.detail),
         fees: Array.isArray(it?.fees)
           ? it.fees.map(fee).filter((f) => f.amount > 0)
           : (num(it?.fee) > 0 ? [{ id: uid(), label: '', amount: num(it.fee), currency }] : []),
@@ -537,7 +543,7 @@
     return `
       <div class="deck" id="deck">
         ${items.map((it, i) => {
-          const m = modeOf(it.mode);
+          const m = modeOf(it.legs[0]?.mode);
           return `<button class="card" data-item="${it.id}" style="--accent:${m.color}">
             <div class="idx">Stop ${i + 1} of ${n}</div>
             <div class="time ${it.time ? '' : 'none'}">${it.time ? esc(fmtTime(it.time)) : 'Any time'}</div>
@@ -545,8 +551,9 @@
             <div class="activity">${esc(it.activity)}</div>
             <div class="row">
               <div class="ic">${m.icon}</div>
-              <div><div class="lbl">Transport${it.mode ? ' · ' + esc(m.label) : ''}</div>
-                <div class="val ${it.transport || it.mode ? '' : 'muted'}">${esc(it.transport || (it.mode ? m.label : 'Not set'))}</div></div>
+              <div><div class="lbl">Transport${it.legs.length > 1 ? ' · ' + transferText(it.legs.length) : it.legs[0]?.mode ? ' · ' + esc(m.label) : ''}</div>
+                ${it.legs.length > 1 ? `<ol class="legs">${it.legs.map((l) => `<li><span>${modeOf(l.mode).icon}</span><b>${esc(legLabel(l))}</b></li>`).join('')}</ol>`
+                  : `<div class="val ${it.legs.length ? '' : 'muted'}">${it.legs.length ? esc(legLabel(it.legs[0])) : 'Not set'}</div>`}</div>
             </div>
             <div class="row">
               <div class="ic">💰</div>
@@ -641,12 +648,11 @@
           <thead><tr><th>#</th><th>Time</th><th>Activity</th><th>Transport</th><th class="fee">Fees</th><th>Remarks</th></tr></thead>
           <tbody>
             ${items.map((it, i) => {
-              const m = modeOf(it.mode);
               return `<tr data-item="${it.id}">
                 <td>${i + 1}</td>
                 <td class="t">${esc(fmtTime(it.time) || '—')}${it.endTime ? `<br><small>→ ${esc(fmtTime(it.endTime))}</small>` : ''}</td>
                 <td><b>${esc(it.activity)}</b></td>
-                <td>${it.mode || it.transport ? `${m.icon} ${esc(it.transport || m.label)}` : '—'}</td>
+                <td>${it.legs.length ? it.legs.map((l) => `${modeOf(l.mode).icon} ${esc(legLabel(l))}`).join('<br>↓ ') : '—'}</td>
                 <td class="fee">${feesBlock(trip, it.fees, true)}</td>
                 <td class="rem">${esc(it.remarks || '')}</td>
               </tr>`;
@@ -712,18 +718,41 @@
   const itemDialog = $('#itemDialog');
   const itemForm = $('#itemForm');
   let itemCtx = null;
-  let selectedMode = '';
+  let legDraft = [];
   let feeDraft = [];
 
-  function renderModeChips() {
-    $('#modeChips').innerHTML = MODES.map((m) =>
-      `<button type="button" class="chip ${m.id === selectedMode ? 'on' : ''}" data-mode="${m.id}">${m.icon} ${esc(m.label)}</button>`).join('');
+  function renderLegRows() {
+    $('#legRows').innerHTML = legDraft.map((l, i) => `
+      ${i ? '<div class="transfer-mark">⇣ Transfer</div>' : ''}
+      <div class="leg-row" data-leg="${i}">
+        ${legDraft.length > 1 ? `<div class="leg-head"><b>Leg ${i + 1}</b>
+          <button type="button" class="rm" data-rmleg="${i}" aria-label="Remove leg ${i + 1}">✕</button></div>` : ''}
+        <div class="chips">${MODES.map((m) =>
+          `<button type="button" class="chip ${m.id === l.mode ? 'on' : ''}" data-mode="${m.id}">${m.icon} ${esc(m.label)}</button>`).join('')}</div>
+        <input type="text" data-k="detail" value="${esc(l.detail)}" placeholder="e.g. Bus 205 / JR Nara Line / Grab" autocomplete="off" />
+      </div>`).join('');
   }
-  $('#modeChips').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-mode]');
-    if (!b) return;
-    selectedMode = b.dataset.mode;
-    renderModeChips();
+  $('#legRows').addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-mode]');
+    const rm = e.target.closest('[data-rmleg]');
+    if (chip) {
+      const i = Number(chip.closest('[data-leg]').dataset.leg);
+      legDraft[i].mode = chip.dataset.mode;
+      chip.parentElement.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c === chip));
+    } else if (rm) {
+      legDraft.splice(Number(rm.dataset.rmleg), 1);
+      renderLegRows();
+    }
+  });
+  $('#legRows').addEventListener('input', (e) => {
+    const row = e.target.closest('[data-leg]');
+    if (row && e.target.dataset.k === 'detail') legDraft[row.dataset.leg].detail = e.target.value;
+  });
+  $('#addLeg').addEventListener('click', () => {
+    legDraft.push({ mode: '', detail: '' });
+    renderLegRows();
+    const rows = $('#legRows').querySelectorAll('.leg-row');
+    rows[rows.length - 1]?.scrollIntoView({ block: 'nearest' });
   });
 
   function renderFeeRows() {
@@ -779,19 +808,19 @@
       f.time.value = item.time || '';
       f.endTime.value = item.endTime || '';
       f.activity.value = item.activity || '';
-      f.transport.value = item.transport || '';
       f.remarks.value = item.remarks || '';
-      selectedMode = item.mode || '';
+      legDraft = item.legs.map((l) => ({ ...l }));
       feeDraft = item.fees.map((x) => ({ label: x.label, amount: String(x.amount), currency: x.currency }));
     } else {
       // Suggest a start time right after the last activity of the day
       const last = [...day.items].reverse().find((x) => x.endTime || x.time);
       f.time.value = last ? (last.endTime || last.time) : '';
-      selectedMode = '';
+      legDraft = [];
       feeDraft = [];
     }
     if (!feeDraft.length) feeDraft.push({ label: '', amount: '', currency: trip.currency });
-    renderModeChips();
+    if (!legDraft.length) legDraft.push({ mode: '', detail: '' });
+    renderLegRows();
     renderFeeRows();
     itemDialog.showModal();
     itemDialog.scrollTop = 0;
@@ -809,7 +838,8 @@
       .map((x) => ({ id: uid(), label: x.label.trim(), amount: num(x.amount), currency: normCur(x.currency) || trip.currency }));
     const data = {
       time: f.time.value, endTime: f.endTime.value, activity,
-      mode: selectedMode, transport: f.transport.value.trim(), fees, remarks: f.remarks.value.trim(),
+      legs: legDraft.map((l) => ({ mode: l.mode, detail: l.detail.trim() })).filter((l) => l.mode || l.detail),
+      fees, remarks: f.remarks.value.trim(),
     };
     let target;
     if (item) { Object.assign(item, data); target = item; }
@@ -833,7 +863,7 @@
   });
   $('#itemDuplicate').addEventListener('click', () => {
     const { trip, day, item } = itemCtx;
-    const copy = { ...item, id: uid(), fees: item.fees.map((x) => ({ ...x, id: uid() })) };
+    const copy = { ...item, id: uid(), legs: item.legs.map((l) => ({ ...l })), fees: item.fees.map((x) => ({ ...x, id: uid() })) };
     day.items.splice(day.items.indexOf(item) + 1, 0, copy);
     day.items = sortItems(day.items);
     ui.cardIndex[day.id] = day.items.indexOf(copy);
@@ -1208,7 +1238,7 @@
         const s = sumBase(trip, it.fees);
         rows.push([
           i + 1, isoOf(i), d.title || '', it.time, it.endTime, it.activity,
-          it.mode ? modeOf(it.mode).label : '', it.transport,
+          it.legs.map((l) => modeOf(l.mode).label).join(' → '), it.legs.map(legLabel).join(' → '),
           it.fees.map((f) => `${f.label ? f.label + ': ' : ''}${f.currency} ${f.amount}`).join('; '),
           it.fees.length ? round2(s.total) + (s.missing.size ? ' (+ no rate: ' + [...s.missing].join(', ') + ')' : '') : '',
           it.remarks,
@@ -1262,9 +1292,8 @@
     const date = dayDate(trip, i);
     const lines = [`${trip.name} — Day ${i + 1}${date ? ' (' + fmtDate(date) + ')' : ''}${d.title ? ': ' + d.title : ''}`, ''];
     sortItems(d.items).forEach((it) => {
-      const m = modeOf(it.mode);
       lines.push(`${it.time ? fmtTime(it.time) + (it.endTime ? '–' + fmtTime(it.endTime) : '') : '•'}  ${it.activity}`);
-      if (it.mode || it.transport) lines.push(`   ${m.icon} ${it.transport || m.label}`);
+      if (it.legs.length) lines.push(`   ${legsText(it.legs)}`);
       it.fees.forEach((f) => lines.push(`   💰 ${f.label ? f.label + ': ' : ''}${fmtMoney(f.amount, f.currency)}`));
       if (it.remarks) lines.push(`   📝 ${it.remarks}`);
     });
@@ -1293,7 +1322,11 @@
     const today = new Date();
     const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     const fee = (amount, label = '', currency = 'JPY') => ({ id: uid(), label, amount, currency });
-    const mk = (time, endTime, activity, mode, transport, fees, remarks) => ({ id: uid(), time, endTime, activity, mode, transport, fees, remarks });
+    // legs: 'mode:detail' strings, e.g. 'bus:City Bus 206'
+    const mk = (time, endTime, activity, legs, fees, remarks) => ({
+      id: uid(), time, endTime, activity, fees, remarks,
+      legs: legs.map((x) => { const [mode, ...d] = x.split(':'); return { mode, detail: d.join(':') }; }),
+    });
     const sp = (item, amount, paidBy, currency = 'JPY') => ({ id: uid(), item, amount, currency, paidBy });
     const trip = normalizeTrip({
       id: uid(), name: 'Kyoto & Osaka (sample)', startDate: iso, currency: 'JPY', base: 'MYR',
@@ -1310,11 +1343,11 @@
       ],
       days: [
         { title: 'Arrive & explore Kyoto', items: [
-          mk('08:30', '09:45', 'Kansai Airport → Kyoto Station', 'train', 'JR Haruka Express', [fee(3600, 'Haruka ticket'), fee(2000, 'ICOCA card deposit')], 'Buy ICOCA & Haruka combo at JR ticket office'),
-          mk('10:15', '10:45', 'Check in luggage at hotel', 'walk', '8 min walk from Kyoto Stn', [], 'Hotel Granvia — check-in from 3 PM'),
-          mk('11:00', '13:30', 'Fushimi Inari Taisha', 'train', 'JR Nara Line, 2 stops', [fee(150, 'Train')], 'Go up to Yotsutsuji viewpoint (~45 min hike). Wear good shoes!'),
-          mk('14:30', '17:00', 'Kiyomizu-dera & Sannenzaka', 'bus', 'City Bus 206 / 86', [fee(230, 'Bus fare'), fee(400, 'Temple entry')], ''),
-          mk('18:30', '', 'Dinner at Pontocho Alley', 'walk', '', [fee(4000, 'Set menu')], 'Reservation under "Tan" — 7 PM'),
+          mk('08:30', '09:45', 'Kansai Airport → Kyoto Station', ['train:JR Haruka Express'], [fee(3600, 'Haruka ticket'), fee(2000, 'ICOCA card deposit')], 'Buy ICOCA & Haruka combo at JR ticket office'),
+          mk('10:15', '10:45', 'Check in luggage at hotel', ['walk:8 min walk from Kyoto Stn'], [], 'Hotel Granvia — check-in from 3 PM'),
+          mk('11:00', '13:30', 'Fushimi Inari Taisha', ['walk:Back to Kyoto Stn', 'train:JR Nara Line to Inari (2 stops)'], [fee(150, 'Train')], 'Go up to Yotsutsuji viewpoint (~45 min hike). Wear good shoes!'),
+          mk('14:30', '17:00', 'Kiyomizu-dera & Sannenzaka', ['train:JR Nara Line back to Kyoto Stn', 'bus:City Bus 206 to Gojozaka'], [fee(230, 'Bus fare'), fee(400, 'Temple entry')], ''),
+          mk('18:30', '', 'Dinner at Pontocho Alley', ['bus:City Bus 207 to Shijo Kawaramachi', 'walk:5 min to Pontocho'], [fee(4000, 'Set menu')], 'Reservation under "Tan" — 7 PM'),
         ], spend: [
           sp('Matcha ice cream ×2', 1000, 'Aina'),
           sp('Omamori charms', 1500, 'Hafiz'),
@@ -1322,14 +1355,14 @@
           sp('Snacks at 7-Eleven', 860, 'Hafiz'),
         ] },
         { title: 'Arashiyama', items: [
-          mk('07:30', '09:00', 'Bamboo Grove (early, before crowds)', 'train', 'JR Sagano Line to Saga-Arashiyama', [fee(240)], ''),
-          mk('09:30', '11:00', 'Tenryu-ji Temple', 'walk', '', [fee(500, 'Garden + temple ticket')], ''),
-          mk('12:00', '', 'Lunch: yudofu', '', '', [fee(2500)], ''),
+          mk('07:30', '09:00', 'Bamboo Grove (early, before crowds)', ['train:JR Sagano Line to Saga-Arashiyama'], [fee(240)], ''),
+          mk('09:30', '11:00', 'Tenryu-ji Temple', ['walk:'], [fee(500, 'Garden + temple ticket')], ''),
+          mk('12:00', '', 'Lunch: yudofu', [], [fee(2500)], ''),
         ], spend: [sp('Rickshaw ride', 4000, 'Aina')] },
         { title: 'Osaka day trip', items: [
-          mk('09:00', '09:30', 'Kyoto → Osaka', 'train', 'JR Special Rapid', [fee(580)], ''),
-          mk('10:00', '12:00', 'Osaka Castle', 'metro', 'Chuo Line to Tanimachi 4-chome', [fee(230, 'Metro'), fee(600, 'Castle entry')], ''),
-          mk('18:00', '', 'Street food in Dotonbori', 'metro', 'Midosuji Line to Namba', [fee(3000)], 'Try takoyaki at Wanaka'),
+          mk('09:00', '09:30', 'Kyoto → Osaka', ['train:JR Special Rapid to Osaka Stn'], [fee(580)], ''),
+          mk('10:00', '12:00', 'Osaka Castle', ['metro:Midosuji Line to Hommachi', 'metro:Chuo Line to Tanimachi 4-chome'], [fee(230, 'Metro'), fee(600, 'Castle entry')], ''),
+          mk('18:00', '', 'Street food in Dotonbori', ['metro:Tanimachi Line to Higashi-Umeda', 'walk:Transfer to Umeda', 'metro:Midosuji Line to Namba'], [fee(3000)], 'Try takoyaki at Wanaka'),
         ], spend: [] },
       ],
     });
