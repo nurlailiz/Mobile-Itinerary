@@ -38,7 +38,7 @@ Before Day 1 there's a **📊 Overview** dashboard for the whole trip:
 - **Daily spending** with item, price, who paid, and the price converted to RM. The day shows a total and a per-person breakdown.
 - **Spending summary** (⋯ menu) lists the total for each day and how much each person paid over the whole trip.
 - **Currencies & rates** (⋯ menu or 💱 Rates): type exchange rates yourself or tap *Get latest rates*. Totals are converted to RM by default. You can change this under *Edit trip → Convert totals to*.
-- **Export to Excel (CSV)** with itinerary, spending and who-paid sections, **share or copy a day as text**, and **JSON backup/restore**.
+- **Share or copy a day as text**, and **JSON backup/restore**.
 - **Works offline** and can be **installed on your home screen** (PWA). Light and dark mode.
 - Data stays on your device in browser storage. There are no accounts and no server.
 

@@ -411,7 +411,6 @@
       { label: '💱 Currencies & exchange rates', fn: () => openRatesDialog(trip) },
       { label: '📊 Overview (costs & budget)', fn: () => { ui.dayIndex[trip.id] = -1; renderTrip(trip); } },
       { label: '💸 Spending summary (who paid)', fn: () => openSummary(trip) },
-      { label: '📄 Export to Excel (CSV)', fn: () => exportCSV(trip) },
       ...(di >= 0 ? [{ label: '📋 Share / copy this day', fn: () => copyDay(trip, di) }] : []),
       { label: '⬇️ Back up trip (JSON)', fn: () => exportJSON(trip) },
       { label: '🗑 Delete trip', fn: () => deleteTrip(trip), danger: true },
@@ -1238,57 +1237,7 @@
   });
 
   // ---------- Export / import ----------
-  function csvCell(v) {
-    const s = String(v ?? '');
-    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  }
   const safeName = (s) => s.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '_') || 'itinerary';
-  const round2 = (v) => (v == null ? '' : Math.round(v * 100) / 100);
-
-  function exportCSV(trip) {
-    const B = trip.base;
-    const isoOf = (i) => {
-      const date = dayDate(trip, i);
-      return date ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}` : '';
-    };
-    const T = tripTotals(trip);
-    const rows = [['OVERVIEW'], ['', `Amount (${B})`],
-      ['Trip costs', round2(T.costs.total)], ['Budget allocations', round2(T.allocs.total)],
-      ['Activity fees', round2(T.fees.total)], ['ESTIMATED TOTAL', round2(T.total.total)],
-      [`Per person (${trip.travellers})`, round2(T.total.total / trip.travellers)], ['Daily spending so far', round2(T.spent.total)], []];
-    rows.push(['TRIP COSTS'], ['Item', 'Category', 'Price', 'Currency', 'Who paid', `Price (${B})`]);
-    trip.costs.forEach((c) => { const v = toBase(trip, c.amount, c.currency); rows.push([c.item, catOf(c.category).label, c.amount, c.currency, c.paidBy, round2(v)]); });
-    rows.push([], ['BUDGET ALLOCATIONS'], ['Name', 'Category', 'Amount', 'Currency', `Amount (${B})`]);
-    trip.allocs.forEach((a) => { const v = toBase(trip, a.amount, a.currency); rows.push([a.item, catOf(a.category).label, a.amount, a.currency, round2(v)]); });
-    rows.push([], ['ITINERARY'], ['Day', 'Date', 'Day title', 'Time', 'Until', 'Activity', 'Transport mode', 'Bus no. / line', 'Transport details', 'Fees', `Fees (${B})`, 'Remarks']);
-    trip.days.forEach((d, i) => {
-      sortItems(d.items).forEach((it) => {
-        const s = sumBase(trip, it.fees);
-        rows.push([
-          i + 1, isoOf(i), d.title || '', it.time, it.endTime, it.activity,
-          it.legs.map((l) => modeOf(l.mode).label).join(' → '), it.legs.map((l) => l.line || '-').join(' | '),
-          it.legs.map((l) => l.detail || '-').join(' | '),
-          it.fees.map((f) => `${f.label ? f.label + ': ' : ''}${f.currency} ${f.amount}`).join('; '),
-          it.fees.length ? round2(s.total) + (s.missing.size ? ' (+ no rate: ' + [...s.missing].join(', ') + ')' : '') : '',
-          it.remarks,
-        ]);
-      });
-    });
-    rows.push(['', '', '', '', '', 'TOTAL FEES', '', '', '', round2(sumBase(trip, tripFees(trip)).total), '']);
-
-    rows.push([], ['SPENDING'], ['Day', 'Date', 'Item', 'Price', 'Currency', 'Who paid', `Rate to ${B}`, `Price (${B})`]);
-    trip.days.forEach((d, i) => d.spend.forEach((s) => {
-      const r = rateOf(trip, s.currency);
-      rows.push([i + 1, isoOf(i), s.item, s.amount, s.currency, s.paidBy, r || '', r ? round2(s.amount * r) : '']);
-    }));
-    rows.push(['', '', 'TOTAL SPENT', '', '', '', '', round2(sumBase(trip, tripSpend(trip)).total)]);
-    rows.push([], ['WHO PAID (trip costs + spending)'], ['Person', `Total (${B})`]);
-    byPerson(trip, [...trip.costs, ...tripSpend(trip)]).forEach(([who, v]) => rows.push([who, round2(v.total)]));
-
-    // BOM so Excel opens UTF‑8 (emoji, accents, CJK) correctly
-    download(`${safeName(trip.name)}.csv`, '﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
-    toast('CSV exported — opens in Excel / Sheets');
-  }
 
   function exportJSON(trip) {
     const payload = { app: 'swipe-itinerary', version: 2, trips: trip && trip.id ? [trip] : db.trips };
