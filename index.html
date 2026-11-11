@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f766e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Itinerary" />
+  <title>Swipe Itinerary</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- Activity ("row") editor -->
+  <dialog id="itemDialog" class="sheet">
+    <form id="itemForm" method="dialog">
+      <div class="sheet-handle"></div>
+      <h2 id="itemDialogTitle">New activity</h2>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Time</span>
+          <input type="time" name="time" />
+        </label>
+        <label class="field">
+          <span>Until (optional)</span>
+          <input type="time" name="endTime" />
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Activity *</span>
+        <input type="text" name="activity" required placeholder="e.g. Visit Fushimi Inari" autocomplete="off" />
+      </label>
+
+      <div class="field">
+        <span>Transportation</span>
+        <div class="chips" id="modeChips"></div>
+        <input type="text" name="transport" placeholder="e.g. Bus 205 / JR Nara Line / Grab" autocomplete="off" />
+      </div>
+
+      <label class="field">
+        <span>Fee</span>
+        <div class="input-prefix">
+          <b id="feeCurrency"></b>
+          <input type="number" name="fee" inputmode="decimal" step="0.01" min="0" placeholder="0.00" />
+        </div>
+      </label>
+
+      <label class="field">
+        <span>Remarks</span>
+        <textarea name="remarks" rows="3" placeholder="Booking no., tips, what to bring…"></textarea>
+      </label>
+
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost danger" id="itemDelete">Delete</button>
+        <button type="button" class="btn ghost" id="itemDuplicate">Duplicate</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="itemCancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Trip editor -->
+  <dialog id="tripDialog" class="sheet">
+    <form id="tripForm" method="dialog">
+      <div class="sheet-handle"></div>
+      <h2 id="tripDialogTitle">New trip</h2>
+      <label class="field">
+        <span>Trip name *</span>
+        <input type="text" name="name" required placeholder="e.g. Japan 2026" autocomplete="off" />
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>Start date</span>
+          <input type="date" name="startDate" />
+        </label>
+        <label class="field">
+          <span>Days</span>
+          <input type="number" name="dayCount" min="1" max="60" value="1" inputmode="numeric" />
+        </label>
+      </div>
+      <label class="field">
+        <span>Currency symbol</span>
+        <input type="text" name="currency" maxlength="5" placeholder="RM, $, ¥, €…" autocomplete="off" />
+      </label>
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost danger" id="tripDelete">Delete trip</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="tripCancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Day editor -->
+  <dialog id="dayDialog" class="sheet">
+    <form id="dayForm" method="dialog">
+      <div class="sheet-handle"></div>
+      <h2 id="dayDialogTitle">Day</h2>
+      <label class="field">
+        <span>Title (optional)</span>
+        <input type="text" name="title" placeholder="e.g. Kyoto temples" autocomplete="off" />
+      </label>
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost danger" id="dayDelete">Delete day</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="dayCancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <input type="file" id="importFile" accept="application/json,.json" hidden />
+
+  <script src="app.js"></script>
+</body>
+</html>
