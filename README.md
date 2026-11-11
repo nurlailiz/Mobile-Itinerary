@@ -9,7 +9,7 @@ Each **row** (activity) holds:
 | Time (+ optional end time) | 08:30 → 09:45 |
 | Activity | Kansai Airport → Kyoto Station |
 | Transportation (one or more legs, for transfers) | 🚌 Bus 205 → 🚆 JR Nara Line |
-| Fees (as many as you need, each in any currency) | Ticket ¥ 3,600 + Express pass US$ 50 → ≈ RM 494.20 |
+| Transport fees (as many fares as you need, each in any currency) | Bus 206 ¥230 + JR Nara Line ¥150 → ≈ RM 11.02 |
 | Remarks | Buy ICOCA & Haruka combo at ticket office |
 
 Each **day** also has a **Spending** list, shown under the itinerary:
@@ -25,7 +25,7 @@ Before Day 1 there's a **📊 Overview** dashboard for the whole trip:
 
 - **Trip costs**: flights, hotel bookings, hanbok rental, insurance… (item, category, price in any currency, who paid)
 - **Budget allocations**: money set aside for meals, lodging, transport, shopping…, compared against what you've spent day by day
-- **Estimated total trip cost** = trip costs + allocations + activity fees, with a per-person amount (set the number of travellers)
+- **Estimated total trip cost** = trip costs + transport fees + allocations (plus any spending beyond the allocations), with a per-person amount (set the number of travellers)
 - A list of the days with each day's fees and spending
 
 ## Features
@@ -34,7 +34,7 @@ Before Day 1 there's a **📊 Overview** dashboard for the whole trip:
 - **Sheet view**: the same day as a table, like Excel, with a total row. Tap a row to edit it.
 - **Trips & days**: set a start date and the number of days. Each day shows its date and can have a title (e.g. "Arashiyama").
 - Activities are **sorted by time** automatically. A new activity starts at the time the previous one ends.
-- **Multiple fees per activity**, each in its own currency (e.g. a ticket in ¥ and a pass in US$).
+- **Transport fees per activity**: one fare per bus/train if you like, each in its own currency. Activity costs (tickets, meals, shopping) go in the day's **Spending** list.
 - **Daily spending** with item, price, who paid, and the price converted to RM. The day shows a total and a per-person breakdown.
 - **Spending summary** (⋯ menu) lists the total for each day and how much each person paid over the whole trip.
 - **Currencies & rates** (⋯ menu or 💱 Rates): rates fill in automatically when you're online (free daily market rates, similar to XE), with an **XE ↗** link next to each rate to compare. You can still type your own rate, e.g. your money changer's. Totals are converted to RM by default. You can change this under *Edit trip → Convert totals to*.

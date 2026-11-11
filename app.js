@@ -194,14 +194,17 @@
   }
   const allCurOptions = (selected) => CURRENCIES.map(([c, , name]) => `<option value="${c}" ${c === selected ? 'selected' : ''}>${c} — ${esc(name)}</option>`).join('');
 
-  // Whole-trip estimate = trip costs + budget allocations + activity fees
+  // Whole-trip estimate = trip costs + transport fees + budget allocations
+  // (+ any daily spending beyond the allocations, e.g. activity tickets, meals)
   function tripTotals(trip) {
     const costs = sumBase(trip, trip.costs);
     const allocs = sumBase(trip, trip.allocs);
     const fees = sumBase(trip, tripFees(trip));
     const spent = sumBase(trip, tripSpend(trip));
     const missing = new Set([...costs.missing, ...allocs.missing, ...fees.missing]);
-    return { costs, allocs, fees, spent, total: { total: costs.total + allocs.total + fees.total, missing } };
+    const over = Math.max(0, spent.total - allocs.total);
+    [...spent.missing].forEach((c) => missing.add(c));
+    return { costs, allocs, fees, spent, over, total: { total: costs.total + allocs.total + fees.total + over, missing } };
   }
 
   function byPerson(trip, list) {
@@ -306,7 +309,7 @@
         <div class="empty">
           <div class="big">🧳</div>
           <h2>No trips yet</h2>
-          <p>Create a trip, add activities with time, transport, fees and remarks — then swipe through your day like flashcards and track what everyone spends.</p>
+          <p>Create a trip, add activities with time, transport, fares and remarks — then swipe through your day like flashcards and track what everyone spends.</p>
           <button class="btn primary" id="newTripEmpty">Create your first trip</button>
           <div style="height:12px"></div>
           <button class="btn" id="sampleTrip">Try a sample trip</button>
@@ -450,8 +453,9 @@
     const pct = (v) => (grand > 0 ? (v / grand) * 100 : 0);
     const segs = [
       { label: 'Trip costs', v: T.costs, color: '#0284c7' },
+      { label: 'Transport fees (from days)', v: T.fees, color: '#14b8a6' },
       { label: 'Budget allocations', v: T.allocs, color: '#f59e0b' },
-      { label: 'Activity fees (from days)', v: T.fees, color: '#14b8a6' },
+      ...(T.over > 0 ? [{ label: 'Spending over budget', v: { total: T.over, missing: new Set() }, color: '#ef4444' }] : []),
     ];
     const left = T.allocs.total - T.spent.total;
     const n = trip.travellers;
@@ -504,7 +508,7 @@
           ${trip.days.map((d, i) => `<li><button class="spend-item" data-goday="${i}">
             <span class="cat-ic">${i + 1}</span>
             <div class="what"><b>${esc(d.title || 'Day ' + (i + 1))}</b><small>${esc(fmtDate(dayDate(trip, i)) || '')}${dayDate(trip, i) ? ' · ' : ''}${plural(d.items.length, 'activity', 'activities')}</small></div>
-            <div class="amt"><b>${esc(fmtBase(trip, sumBase(trip, itemFees(d.items))))}</b><small>spent ${esc(fmtBase(trip, sumBase(trip, d.spend)))}</small></div>
+            <div class="amt"><b>${esc(fmtBase(trip, sumBase(trip, d.spend)))}</b><small>🎫 transport ${esc(fmtBase(trip, sumBase(trip, itemFees(d.items))))}</small></div>
           </button></li>`).join('')}
         </ul>
       </section>
@@ -533,12 +537,12 @@
 
   // Fee lines for a card / table cell
   function feesBlock(trip, fees, compact) {
-    if (!fees.length) return compact ? '—' : '<div class="val muted">Free</div>';
+    if (!fees.length) return compact ? '—' : '<div class="val muted">None</div>';
     const s = sumBase(trip, fees);
     const needsTotal = fees.length > 1 || fees.some((f) => f.currency !== trip.base);
     const lines = fees.map((f) => compact
       ? `${f.label ? esc(f.label) + ': ' : ''}${esc(fmtMoney(f.amount, f.currency))}`
-      : `<div class="fee-line"><span>${esc(f.label || (fees.length > 1 ? 'Fee' : ''))}</span><span>${esc(fmtMoney(f.amount, f.currency))}</span></div>`);
+      : `<div class="fee-line"><span>${esc(f.label || (fees.length > 1 ? 'Fare' : ''))}</span><span>${esc(fmtMoney(f.amount, f.currency))}</span></div>`);
     const total = needsTotal ? (s.missing.size
       ? `≈ ${esc(fmtBase(trip, s))} <span class="warn">(no rate for ${esc([...s.missing].join(', '))})</span>`
       : `≈ ${esc(fmtMoney(s.total, trip.base, true))}`) : '';
@@ -572,8 +576,8 @@
                   : `<div class="val ${it.legs.length ? '' : 'muted'}">${it.legs.length ? legHTML(it.legs[0]) : 'Not set'}</div>`}</div>
             </div>
             <div class="row">
-              <div class="ic">💰</div>
-              <div><div class="lbl">Fee${it.fees.length > 1 ? 's' : ''}</div>${feesBlock(trip, it.fees)}</div>
+              <div class="ic">🎫</div>
+              <div><div class="lbl">Transport fee${it.fees.length > 1 ? 's' : ''}</div>${feesBlock(trip, it.fees)}</div>
             </div>
             <div class="row">
               <div class="ic">📝</div>
@@ -587,7 +591,7 @@
         <button class="card add-card" id="deckAdd">
           <div class="plus">+</div>
           <div><b>${n ? 'Add another activity' : 'Add your first activity'}</b></div>
-          <div style="font-size:.85rem">Time · activity · transport · fees · remarks</div>
+          <div style="font-size:.85rem">Time · activity · transport · fares · remarks</div>
         </button>
       </div>
       <div class="deck-nav">
@@ -661,7 +665,7 @@
     return `
       <div class="table-wrap">
         <table>
-          <thead><tr><th>#</th><th>Time</th><th>Activity</th><th>Transport</th><th class="fee">Fees</th><th>Remarks</th></tr></thead>
+          <thead><tr><th>#</th><th>Time</th><th>Activity</th><th>Transport</th><th class="fee">Transport fees</th><th>Remarks</th></tr></thead>
           <tbody>
             ${items.map((it, i) => {
               return `<tr data-item="${it.id}">
@@ -674,7 +678,7 @@
               </tr>`;
             }).join('')}
           </tbody>
-          <tfoot><tr><td></td><td colspan="3">Total fees</td><td class="fee">${esc(fmtBase(trip, total))}</td><td></td></tr></tfoot>
+          <tfoot><tr><td></td><td colspan="3">Total transport fees</td><td class="fee">${esc(fmtBase(trip, total))}</td><td></td></tr></tfoot>
         </table>
       </div>
       <button class="btn add-row-btn" id="sheetAdd">+ Add row</button>`;
@@ -700,12 +704,13 @@
                 ${s.currency !== trip.base ? `<small>${v == null ? '<span class="warn">set rate</span>' : '≈ ' + esc(fmtMoney(v, trip.base, true))}</small>` : ''}</div>
             </button></li>`;
           }).join('')}
-        </ul>` : '<div class="spend-empty">Nothing spent yet on this day.</div>'}
+        </ul>` : '<div class="spend-empty">Nothing spent yet. Add activity tickets, meals, shopping… here.</div>'}
         <button class="btn add-row-btn" id="addSpend">+ Add spending</button>
         <div class="spend-foot">
           ${people.length ? `<div class="people">${people.map(([who, v]) => `<span>${esc(who)} · ${esc(fmtBase(trip, v))}</span>`).join('')}</div>` : ''}
           <div class="line"><span>Spent today</span><b>${esc(fmtBase(trip, spent))}</b></div>
-          <div class="line"><span>Activity fees today</span><b>${esc(fmtBase(trip, fees))}</b></div>
+          <div class="line"><span>Transport fees today</span><b>${esc(fmtBase(trip, fees))}</b></div>
+          <div class="line grand"><span>Day total</span><b>${esc(fmtMoney(spent.total + fees.total, trip.base, true))}${missing.size ? '*' : ''}</b></div>
           ${missing.size ? `<div class="warn" style="font-size:.82rem">* No exchange rate yet for ${esc([...missing].join(', '))} — tap 💱 Rates.</div>` : ''}
         </div>
       </section>`;
@@ -785,14 +790,20 @@
     rows[rows.length - 1]?.scrollIntoView({ block: 'nearest' });
   });
 
+  // Suggest a fare label from the matching transport leg, e.g. "206 fare"
+  function farePlaceholder(i) {
+    const l = legDraft[i] || legDraft[0];
+    const name = l && (l.line || (l.mode && l.mode !== 'walk' ? modeOf(l.mode).label : ''));
+    return `What for? e.g. ${name ? name + ' fare' : 'Bus fare / Grab'} (optional)`;
+  }
   function renderFeeRows() {
     const { trip } = itemCtx;
     $('#feeRows').innerHTML = feeDraft.map((f, i) => `
       <div class="fee-row" data-i="${i}">
-        <input class="label" type="text" data-k="label" value="${esc(f.label)}" placeholder="What for? e.g. Entry ticket (optional)" autocomplete="off" />
+        <input class="label" type="text" data-k="label" value="${esc(f.label)}" placeholder="${esc(farePlaceholder(i))}" autocomplete="off" />
         <select data-k="currency" aria-label="Currency">${curOptions(trip, f.currency)}</select>
         <input type="number" data-k="amount" value="${f.amount === '' ? '' : esc(f.amount)}" inputmode="decimal" step="any" min="0" placeholder="Amount" aria-label="Amount" />
-        <button type="button" class="rm" data-rm="${i}" aria-label="Remove fee">✕</button>
+        <button type="button" class="rm" data-rm="${i}" aria-label="Remove fare">✕</button>
       </div>`).join('');
     updateFeeTotal();
   }
@@ -1186,7 +1197,7 @@
       ${people.length ? `<table class="summary-table"><tbody>
         ${people.map(([who, v]) => `<tr><td>🙋 ${esc(who)}</td><td>${esc(fmtBase(trip, v))}</td></tr>`).join('')}
       </tbody></table>` : '<p class="muted-note">No spending recorded yet.</p>'}
-      <p class="muted-note">Planned activity fees for the whole trip: <b>${esc(fmtBase(trip, fees))}</b></p>
+      <p class="muted-note">Transport fees for the whole trip: <b>${esc(fmtBase(trip, fees))}</b></p>
       <p class="muted-note">“Who paid” includes trip costs and daily spending.</p>
       ${spent.missing.size || fees.missing.size || costs.missing.size ? `<p class="warn" style="margin:0;font-size:.85rem">* Some amounts have no exchange rate yet and are not counted.</p>` : ''}
       <div class="sheet-actions"><span class="spacer"></span><button class="btn primary">Close</button></div>
@@ -1342,10 +1353,10 @@
     sortItems(d.items).forEach((it) => {
       lines.push(`${it.time ? fmtTime(it.time) + (it.endTime ? '–' + fmtTime(it.endTime) : '') : '•'}  ${it.activity}`);
       if (it.legs.length) lines.push(`   ${legsText(it.legs)}`);
-      it.fees.forEach((f) => lines.push(`   💰 ${f.label ? f.label + ': ' : ''}${fmtMoney(f.amount, f.currency)}`));
+      it.fees.forEach((f) => lines.push(`   🎫 ${f.label ? f.label + ': ' : ''}${fmtMoney(f.amount, f.currency)}`));
       if (it.remarks) lines.push(`   📝 ${it.remarks}`);
     });
-    lines.push('', `Activity fees: ${fmtBase(trip, sumBase(trip, itemFees(d.items)))}`);
+    lines.push('', `Transport fees: ${fmtBase(trip, sumBase(trip, itemFees(d.items)))}`);
     if (d.spend.length) {
       lines.push('', '💸 Spending');
       d.spend.forEach((s) => {
@@ -1391,12 +1402,15 @@
       ],
       days: [
         { title: 'Arrive & explore Kyoto', items: [
-          mk('08:30', '09:45', 'Kansai Airport → Kyoto Station', ['train:JR Haruka Express:Platform 30, to Kyoto Stn'], [fee(3600, 'Haruka ticket'), fee(2000, 'ICOCA card deposit')], 'Buy ICOCA & Haruka combo at JR ticket office'),
+          mk('08:30', '09:45', 'Kansai Airport → Kyoto Station', ['train:JR Haruka Express:Platform 30, to Kyoto Stn'], [fee(3600, 'Haruka ticket')], 'Buy ICOCA & Haruka combo at JR ticket office'),
           mk('10:15', '10:45', 'Check in luggage at hotel', ['walk::8 min from Kyoto Stn, Hachijo exit'], [], 'Hotel Granvia — check-in from 3 PM'),
-          mk('11:00', '13:30', 'Fushimi Inari Taisha', ['walk::Back to Kyoto Stn', 'train:JR Nara Line:To Inari (2 stops)'], [fee(150, 'Train')], 'Go up to Yotsutsuji viewpoint (~45 min hike). Wear good shoes!'),
-          mk('14:30', '17:00', 'Kiyomizu-dera & Sannenzaka', ['train:JR Nara Line:Back to Kyoto Stn', 'bus:206:Bus stop D2 → Gojozaka'], [fee(230, 'Bus fare'), fee(400, 'Temple entry')], ''),
-          mk('18:30', '', 'Dinner at Pontocho Alley', ['bus:207:To Shijo Kawaramachi', 'walk::5 min to Pontocho'], [fee(4000, 'Set menu')], 'Reservation under "Tan" — 7 PM'),
+          mk('11:00', '13:30', 'Fushimi Inari Taisha', ['walk::Back to Kyoto Stn', 'train:JR Nara Line:To Inari (2 stops)'], [fee(150, 'JR Nara Line')], 'Go up to Yotsutsuji viewpoint (~45 min hike). Wear good shoes!'),
+          mk('14:30', '17:00', 'Kiyomizu-dera & Sannenzaka', ['train:JR Nara Line:Back to Kyoto Stn', 'bus:206:Bus stop D2 → Gojozaka'], [fee(150, 'JR Nara Line'), fee(230, 'Bus 206')], ''),
+          mk('18:30', '', 'Dinner at Pontocho Alley', ['bus:207:To Shijo Kawaramachi', 'walk::5 min to Pontocho'], [fee(230, 'Bus 207')], 'Reservation under "Tan" — 7 PM'),
         ], spend: [
+          sp('ICOCA card deposit', 2000, 'Hafiz'),
+          sp('Kiyomizu-dera temple entry ×2', 800, 'Aina'),
+          sp('Dinner set menu, Pontocho', 8000, 'Hafiz'),
           sp('Matcha ice cream ×2', 1000, 'Aina'),
           sp('Omamori charms', 1500, 'Hafiz'),
           sp('eSIM (bought online)', 12, 'Aina', 'USD'),
@@ -1404,14 +1418,14 @@
         ] },
         { title: 'Arashiyama', items: [
           mk('07:30', '09:00', 'Bamboo Grove (early, before crowds)', ['train:JR Sagano Line:To Saga-Arashiyama'], [fee(240)], ''),
-          mk('09:30', '11:00', 'Tenryu-ji Temple', ['walk::'], [fee(500, 'Garden + temple ticket')], ''),
-          mk('12:00', '', 'Lunch: yudofu', [], [fee(2500)], ''),
-        ], spend: [sp('Rickshaw ride', 4000, 'Aina')] },
+          mk('09:30', '11:00', 'Tenryu-ji Temple', ['walk::'], [], ''),
+          mk('12:00', '', 'Lunch: yudofu', ['walk::'], [], ''),
+        ], spend: [sp('Tenryu-ji garden + temple ×2', 1000, 'Hafiz'), sp('Yudofu lunch ×2', 5000, 'Aina'), sp('Rickshaw ride', 4000, 'Aina')] },
         { title: 'Osaka day trip', items: [
           mk('09:00', '09:30', 'Kyoto → Osaka', ['train:JR Special Rapid:To Osaka Stn'], [fee(580)], ''),
-          mk('10:00', '12:00', 'Osaka Castle', ['metro:Midosuji Line:To Hommachi', 'metro:Chuo Line:To Tanimachi 4-chome'], [fee(230, 'Metro'), fee(600, 'Castle entry')], ''),
-          mk('18:00', '', 'Street food in Dotonbori', ['metro:Tanimachi Line:To Higashi-Umeda', 'walk::Underground passage to Umeda', 'metro:Midosuji Line:To Namba'], [fee(3000)], 'Try takoyaki at Wanaka'),
-        ], spend: [] },
+          mk('10:00', '12:00', 'Osaka Castle', ['metro:Midosuji Line:To Hommachi', 'metro:Chuo Line:To Tanimachi 4-chome'], [fee(240, 'Metro (with transfer)')], ''),
+          mk('18:00', '', 'Street food in Dotonbori', ['metro:Tanimachi Line:To Higashi-Umeda', 'walk::Underground passage to Umeda', 'metro:Midosuji Line:To Namba'], [fee(290, 'Metro')], 'Try takoyaki at Wanaka'),
+        ], spend: [sp('Osaka Castle entry ×2', 1200, 'Hafiz'), sp('Takoyaki & street food', 3000, 'Aina')] },
       ],
     });
     db.trips.unshift(trip);
