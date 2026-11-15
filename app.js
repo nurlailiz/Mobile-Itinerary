@@ -116,6 +116,10 @@
       allocs: (Array.isArray(t.allocs) ? t.allocs : []).map((a) => ({ ...money(a), paidBy: '' })),
       travellers: Math.max(1, Math.min(99, parseInt(t.travellers, 10) || 1)),
       lastPayer: String(t.lastPayer || ''), lastSpendCurrency: normCur(t.lastSpendCurrency) || '',
+      // Online sharing: emails that can open this trip (empty = only on this phone so far)
+      members: freshIds || !Array.isArray(t.members) ? [] : [...new Set(t.members.map((m) => String(m).trim().toLowerCase()).filter(Boolean))],
+      owner: freshIds ? '' : String(t.owner || '').toLowerCase(),
+      updatedAt: freshIds ? 0 : Number(t.updatedAt) || 0,
     };
   }
 
@@ -130,9 +134,23 @@
     return { trips: [] };
   }
   let db = load();
-  function save() {
+  // Content of a trip without its sharing bookkeeping, used to spot real edits
+  const contentKey = (t) => JSON.stringify({ ...t, members: undefined, owner: undefined, updatedAt: undefined });
+  const localKeys = {}; // tripId -> content when last saved/received
+  db.trips.forEach((t) => { localKeys[t.id] = contentKey(t); });
+
+  function writeLocal() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify({ version: 2, trips: db.trips })); }
     catch (e) { toast('⚠️ Could not save (storage full or blocked)'); }
+  }
+  function save() {
+    // Remember when each trip was last edited on this phone (decides which copy wins when syncing)
+    db.trips.forEach((t) => {
+      const k = contentKey(t);
+      if (localKeys[t.id] !== k) { t.updatedAt = Date.now(); localKeys[t.id] = k; }
+    });
+    writeLocal();
+    scheduleSync();
   }
 
   // UI state that does not need persisting
@@ -287,6 +305,7 @@
         <h1>My Trips<small>Plan like a sheet, swipe like flashcards</small></h1>
         <button class="icon-btn" id="homeMenu" aria-label="More">⋯</button>
       </header>
+      <div id="syncBar">${syncBarHTML()}</div>
       ${trips.length ? `
         <ul class="trip-list">
           ${trips.map((t) => {
@@ -302,6 +321,7 @@
                 <span>📝 ${plural(items.length, 'activity', 'activities')}</span>
                 <span>💰 Total ≈ ${esc(fmtBase(t, tripTotals(t).total))}</span>
                 ${spend.length ? `<span>💸 Spent ${esc(fmtBase(t, sumBase(t, spend)))}</span>` : ''}
+                ${t.members.length > 1 ? `<span class="shared-badge">👥 Shared with ${esc(otherMembers(t).map(shortEmail).join(', '))}</span>` : ''}
               </div>
             </button></li>`;
           }).join('')}
@@ -320,6 +340,7 @@
     $('#newTrip').addEventListener('click', () => openTripDialog());
     $('#newTripEmpty')?.addEventListener('click', () => openTripDialog());
     $('#sampleTrip')?.addEventListener('click', createSample);
+    wireSyncBar();
     $('#homeMenu').addEventListener('click', (e) => showMenu(e, [
       { label: '🧪 Add sample trip', fn: createSample },
       { label: '⬇️ Back up all trips (JSON)', fn: exportJSON },
@@ -413,6 +434,7 @@
   function wireTripChrome(trip, di) {
     $('#back').addEventListener('click', () => { location.hash = '#/'; });
     $('#tripMenu').addEventListener('click', (e) => showMenu(e, [
+      { label: trip.members.length > 1 ? '👥 Sharing…' : '👥 Share trip', fn: () => openShareDialog(trip) },
       { label: '✎ Edit trip details', fn: () => openTripDialog(trip) },
       { label: '💱 Currencies & exchange rates', fn: () => openRatesDialog(trip) },
       { label: '📊 Overview (costs & budget)', fn: () => { ui.dayIndex[trip.id] = -1; renderTrip(trip); } },
@@ -1275,7 +1297,12 @@
   $('#tripDelete').addEventListener('click', () => { tripDialog.close(); deleteTrip(tripCtx); });
 
   function deleteTrip(trip) {
-    if (!confirm(`Delete trip "${trip.name}" and all its activities and spending?`)) return;
+    const others = otherMembers(trip);
+    const msg = others.length
+      ? `Remove "${trip.name}" from your trips?${trip.owner === sync.user?.email ? ` It will also be deleted for ${others.join(', ')}.` : ' The others keep their copy.'}`
+      : `Delete trip "${trip.name}" and all its activities and spending?`;
+    if (!confirm(msg)) return;
+    cloudDelete(trip);
     db.trips = db.trips.filter((t) => t !== trip);
     save();
     location.hash = '#/';
@@ -1432,6 +1459,277 @@
     save();
     location.hash = `#/trip/${trip.id}`;
   }
+
+  // ---------- Online sync & sharing (see cloud.js) ----------
+  const sync = {
+    available: false, // Firebase loaded
+    failed: false,    // Firebase could not load (offline / blocked)
+    user: null,       // { email, name } when signed in
+    ready: false,     // first list of online trips received for this user
+    state: 'idle',    // idle | syncing | synced | offline | error
+    known: new Set(), // trip ids that exist online
+    pushed: {},       // tripId -> content last uploaded/received
+    pending: [],      // online changes waiting until no form is open
+    timer: null,
+  };
+  const TOMB_KEY = STORE_KEY + '.deleted'; // trips deleted here that still need deleting online
+  let tombstones = (() => { try { return JSON.parse(localStorage.getItem(TOMB_KEY)) || []; } catch (e) { return []; } })();
+  const saveTombs = () => { try { localStorage.setItem(TOMB_KEY, JSON.stringify(tombstones)); } catch (e) { /* ignore */ } };
+  const shortEmail = (e) => String(e).split('@')[0];
+  const otherMembers = (t) => t.members.filter((m) => m !== sync.user?.email && m !== (sync.user ? '' : t.owner));
+  const isMine = (t) => sync.user && (!t.members.length || t.members.includes(sync.user.email));
+
+  function syncStatusText() {
+    if (!sync.user) return '';
+    if (!sync.ready) return 'Connecting…';
+    return {
+      syncing: 'Uploading…', synced: 'All saved online ✓', offline: 'Offline — will upload when back online',
+      error: '⚠️ Some changes could not be uploaded', idle: 'All saved online ✓',
+    }[sync.state];
+  }
+  function syncBarHTML() {
+    if (sync.user) {
+      return `<div class="sync-bar on"><span>☁️ <b>${esc(sync.user.email)}</b><small id="syncStatus">${esc(syncStatusText())}</small></span>
+        <button class="link-btn" id="signOutBtn">Sign out</button></div>`;
+    }
+    if (sync.available) {
+      return `<div class="sync-bar"><div><b>☁️ Save trips online &amp; share with family</b>
+        <small>Sign in to keep trips safe and edit them together on different phones.</small></div>
+        <button class="btn primary small" id="signInBtn">Sign in with Google</button></div>`;
+    }
+    return sync.failed ? '<div class="sync-bar muted"><small>☁️ Online sync is unavailable right now (offline?). Your trips are saved on this phone.</small></div>' : '';
+  }
+  function refreshSyncUI() {
+    const bar = $('#syncBar');
+    if (bar) { bar.innerHTML = syncBarHTML(); wireSyncBar(); }
+    const st = $('#syncStatus');
+    if (st) st.textContent = syncStatusText();
+    if (shareCtx && shareDialog.open) renderShare();
+  }
+  function setSyncState(s) { sync.state = s; refreshSyncUI(); }
+  function wireSyncBar() {
+    $('#signInBtn')?.addEventListener('click', signIn);
+    $('#signOutBtn')?.addEventListener('click', () => {
+      if (!confirm('Sign out? Your trips stay on this phone but stop syncing until you sign in again.')) return;
+      window.Cloud.signOut();
+    });
+  }
+  async function signIn() {
+    try { await window.Cloud.signIn(); }
+    catch (err) {
+      const why = err && err.code === 'auth/unauthorized-domain'
+        ? 'this web address is not allowed in Firebase (Authentication → Settings → Authorized domains)'
+        : (err && (err.code || err.message)) || 'unknown error';
+      toast(`⚠️ Sign-in failed: ${why}`);
+    }
+  }
+
+  function scheduleSync() {
+    if (!sync.ready) return;
+    clearTimeout(sync.timer);
+    sync.timer = setTimeout(pushChanges, 600);
+  }
+  // Upload trips edited on this phone (and trips that aren't online yet)
+  async function pushChanges() {
+    if (!sync.ready || !window.Cloud) return;
+    const me = sync.user.email;
+    const jobs = [];
+    db.trips.forEach((t) => {
+      if (t.cloudBlocked || !isMine(t)) return;
+      const key = contentKey(t);
+      if (sync.known.has(t.id) && sync.pushed[t.id] === key) return;
+      sync.pushed[t.id] = key;
+      if (sync.known.has(t.id)) {
+        jobs.push(window.Cloud.update(t.id, { json: JSON.stringify(t), updatedAt: t.updatedAt || Date.now() }).catch((err) => pushFailed(t, err)));
+      } else {
+        t.members = [me]; t.owner = me;
+        sync.known.add(t.id);
+        jobs.push(window.Cloud.create(t.id, { json: JSON.stringify(t), updatedAt: t.updatedAt || Date.now(), members: [me], owner: me })
+          .catch((err) => pushFailed(t, err)));
+      }
+    });
+    if (!jobs.length) return;
+    writeLocal();
+    setSyncState(navigator.onLine === false ? 'offline' : 'syncing');
+    await Promise.all(jobs); // resolves once the server has the changes
+    if (sync.state === 'syncing' || sync.state === 'offline') setSyncState('synced');
+  }
+  function pushFailed(t, err) {
+    console.warn('Upload failed', t.id, err);
+    if (err && err.code === 'permission-denied') t.cloudBlocked = true; // e.g. removed from a shared trip: keep as a local copy
+    if (err && err.code === 'not-found') { sync.known.delete(t.id); delete sync.pushed[t.id]; }
+    setSyncState('error');
+  }
+
+  // Online trips changed (from another phone, or the first list after signing in)
+  function onCloudChanges(changes) {
+    sync.pending.push(...changes);
+    applyPending();
+  }
+  function applyPending() {
+    if (!sync.user || document.querySelector('dialog[open]')) return; // wait: a form may be editing this trip
+    const changes = sync.pending.splice(0);
+    let changed = false;
+    changes.forEach((c) => {
+      if (c.pending) return; // our own upload echoing back
+      const i = db.trips.findIndex((t) => t.id === c.id);
+      const local = db.trips[i];
+      if (c.type === 'removed') {
+        sync.known.delete(c.id); delete sync.pushed[c.id];
+        if (local && local.members.length) {
+          db.trips.splice(i, 1); changed = true;
+          toast(`“${local.name}” was removed or is no longer shared with you`);
+        }
+        return;
+      }
+      sync.known.add(c.id);
+      if (tombstones.includes(c.id)) { finishDelete(c.id, c.data); return; }
+      let remote;
+      try { remote = normalizeTrip({ ...JSON.parse(c.data.json), id: c.id }); } catch (e) { return; }
+      remote.members = (c.data.members || []).map((m) => String(m).toLowerCase());
+      remote.owner = String(c.data.owner || '').toLowerCase();
+      remote.updatedAt = Number(c.data.updatedAt) || 0;
+      const rk = contentKey(remote);
+      if (local) {
+        const membersChanged = local.members.join() !== remote.members.join() || local.owner !== remote.owner;
+        local.members = remote.members; local.owner = remote.owner;
+        if (membersChanged) changed = true;
+        const lk = contentKey(local);
+        if (lk === rk) { sync.pushed[c.id] = rk; return; }
+        // Edited on this phone more recently than the online copy: keep ours, it gets uploaded
+        if ((local.updatedAt || 0) > remote.updatedAt) return;
+        db.trips[i] = remote;
+      } else {
+        db.trips.unshift(remote);
+        if (sync.ready) toast(`👥 “${remote.name}” was shared with you`);
+      }
+      sync.pushed[c.id] = rk;
+      localKeys[c.id] = rk;
+      changed = true;
+    });
+    if (changed) { writeLocal(); route(); }
+    if (!sync.ready) { sync.ready = true; refreshSyncUI(); }
+    scheduleSync();
+  }
+  // Apply waiting online changes once a form closes
+  document.querySelectorAll('dialog').forEach((dlg) => dlg.addEventListener('close', () => setTimeout(applyPending, 0)));
+
+  function cloudDelete(trip) {
+    if (!trip.members.length) return; // never uploaded
+    if (!tombstones.includes(trip.id)) { tombstones.push(trip.id); saveTombs(); }
+    if (sync.ready) finishDelete(trip.id, trip);
+  }
+  // Owner (or only member) deletes the online trip; anyone else just leaves it
+  function finishDelete(id, data) {
+    const me = sync.user.email;
+    const members = data.members || [];
+    const job = data.owner === me || members.length <= 1 ? window.Cloud.remove(id) : window.Cloud.removeMember(id, me);
+    sync.known.delete(id); delete sync.pushed[id];
+    const done = () => { tombstones = tombstones.filter((x) => x !== id); saveTombs(); };
+    job.then(done).catch((err) => { if (err && (err.code === 'permission-denied' || err.code === 'not-found')) done(); });
+  }
+
+  // ---------- Share dialog ----------
+  const shareDialog = $('#shareDialog');
+  let shareCtx = null;
+  function openShareDialog(trip) {
+    shareCtx = { tripId: trip.id };
+    renderShare();
+    shareDialog.showModal();
+  }
+  function renderShare() {
+    const trip = db.trips.find((t) => t.id === shareCtx.tripId);
+    const body = $('#shareBody');
+    if (!trip) { body.innerHTML = '<p class="muted-note">This trip is no longer available.</p>'; return; }
+    if (!sync.available) {
+      body.innerHTML = '<p class="muted-note">Online sharing isn’t available right now — check your internet connection and try again.</p>';
+      return;
+    }
+    if (!sync.user) {
+      body.innerHTML = `<p class="muted-note">Sign in with Google to save “${esc(trip.name)}” online and share it. Your husband, family or friends sign in with their own Google account on their phone, and you both see and edit the same trip.</p>
+        <button type="button" class="btn primary" id="shareSignIn">Sign in with Google</button>`;
+      $('#shareSignIn').addEventListener('click', signIn);
+      return;
+    }
+    const me = sync.user.email;
+    const online = sync.known.has(trip.id);
+    const owner = trip.owner || me;
+    const amOwner = owner === me;
+    const members = trip.members.length ? trip.members : [me];
+    body.innerHTML = `
+      <p class="muted-note">Everyone here can see and edit <b>${esc(trip.name)}</b>. Changes show on all phones within seconds.</p>
+      <ul class="member-list">
+        ${members.map((m) => `<li><span class="avatar">${esc(m[0].toUpperCase())}</span>
+          <span class="who"><b>${esc(m)}</b><small>${m === me ? 'You' : ''}${m === owner ? `${m === me ? ' · ' : ''}Owner` : ''}</small></span>
+          ${amOwner && m !== me ? `<button type="button" class="rm" data-unshare="${esc(m)}" aria-label="Stop sharing with ${esc(m)}">✕</button>` : ''}</li>`).join('')}
+      </ul>
+      <label class="field"><span>Add by Google email</span>
+        <div class="money share-add">
+          <input type="email" id="shareEmail" placeholder="husband@gmail.com" autocomplete="email" inputmode="email" />
+          <button type="button" class="btn primary small" id="shareAdd" ${online ? '' : 'disabled'}>Share</button>
+        </div></label>
+      ${online ? '' : '<p class="muted-note">Uploading this trip first…</p>'}
+      <ol class="share-steps">
+        <li>Send them the app link: <b>${esc(location.origin + location.pathname)}</b></li>
+        <li>They tap <b>Sign in with Google</b> using the email above.</li>
+        <li>The trip appears in their <b>My Trips</b> automatically.</li>
+      </ol>
+      ${amOwner ? '' : '<button type="button" class="btn ghost danger" id="shareLeave">Leave this trip</button>'}`;
+    $('#shareAdd').addEventListener('click', () => addMember(trip));
+    $('#shareEmail').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addMember(trip); } });
+    body.querySelectorAll('[data-unshare]').forEach((b) => b.addEventListener('click', () => {
+      const email = b.dataset.unshare;
+      if (!confirm(`Stop sharing “${trip.name}” with ${email}? It disappears from their phone.`)) return;
+      trip.members = trip.members.filter((m) => m !== email);
+      writeLocal(); renderShare();
+      window.Cloud.removeMember(trip.id, email).catch(() => toast('⚠️ Could not update sharing — try again online'));
+    }));
+    $('#shareLeave')?.addEventListener('click', () => {
+      shareDialog.close();
+      deleteTrip(trip);
+    });
+    if (!online) pushChanges();
+  }
+  function addMember(trip) {
+    const input = $('#shareEmail');
+    const email = input.value.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('Please enter a valid email address'); input.focus(); return; }
+    if (trip.members.includes(email)) { toast('Already shared with that email'); return; }
+    if (!trip.members.length) trip.members = [sync.user.email];
+    trip.members.push(email);
+    writeLocal(); renderShare();
+    toast(`Shared with ${email}`);
+    window.Cloud.addMember(trip.id, email).catch((err) => {
+      trip.members = trip.members.filter((m) => m !== email); writeLocal(); renderShare();
+      toast(`⚠️ Could not share: ${(err && (err.code || err.message)) || 'unknown error'}`);
+    });
+  }
+  $('#shareClose').addEventListener('click', () => { shareDialog.close(); route(); });
+
+  // ---------- Connect to cloud.js ----------
+  function onCloudReady() {
+    if (sync.available) return;
+    sync.available = true;
+    refreshSyncUI();
+    if (window.Cloud.user !== undefined) onCloudUser(window.Cloud.user);
+  }
+  function onCloudUser(user) {
+    if ((user && user.email) === (sync.user && sync.user.email)) return;
+    window.Cloud.stop();
+    sync.user = user;
+    sync.ready = false; sync.known.clear(); sync.pushed = {}; sync.pending = [];
+    if (user) {
+      window.Cloud.watch(user.email, onCloudChanges, (err) => { console.warn('Sync error', err); setSyncState('error'); });
+    }
+    refreshSyncUI();
+    route();
+  }
+  window.addEventListener('cloud-ready', onCloudReady);
+  window.addEventListener('cloud-user', (e) => { if (sync.available) onCloudUser(e.detail); });
+  window.addEventListener('cloud-unavailable', () => { sync.failed = true; refreshSyncUI(); });
+  window.addEventListener('online', () => { if (sync.state === 'offline') setSyncState('syncing'); scheduleSync(); });
+  window.addEventListener('offline', () => { if (sync.user) setSyncState('offline'); });
+  if (window.Cloud) onCloudReady();
 
   // ---------- Boot ----------
   if (db.loaded) save(); // persist the upgrade of older saved data (never overwrite unreadable data)

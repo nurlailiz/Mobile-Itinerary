@@ -184,9 +184,23 @@
     </form>
   </dialog>
 
+  <!-- Share trip -->
+  <dialog id="shareDialog" class="sheet">
+    <form method="dialog">
+      <div class="sheet-handle"></div>
+      <h2>👥 Share trip</h2>
+      <div id="shareBody" class="share-body"></div>
+      <div class="sheet-actions">
+        <span class="spacer"></span>
+        <button type="button" class="btn primary" id="shareClose">Done</button>
+      </div>
+    </form>
+  </dialog>
+
   <div id="toast" role="status" aria-live="polite"></div>
   <input type="file" id="importFile" accept="application/json,.json" hidden />
 
   <script src="app.js"></script>
+  <script type="module" src="cloud.js"></script>
 </body>
 </html>
