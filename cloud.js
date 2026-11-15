@@ -5,12 +5,12 @@
 // a trip is enforced by the Firestore security rules (only emails listed in the trip's `members`).
 const SDK = 'https://www.gstatic.com/firebasejs/13.3.0';
 const firebaseConfig = {
-  apiKey: 'AIzaSyBs_yCOlK9rUr8s6EeNGNd9zz70ZPywlMY',
-  authDomain: 'mobile-itinerary-f5328.firebaseapp.com',
-  projectId: 'mobile-itinerary-f5328',
-  storageBucket: 'mobile-itinerary-f5328.firebasestorage.app',
-  messagingSenderId: '307872902240',
-  appId: '1:307872902240:web:c889706816f221bac52705',
+  apiKey: 'AIzaSyDzuRwQBqp7tMmTx2bVIrV1O9s8W2UQjFQ',
+  authDomain: 'mobile-itinerary-ccdfc.firebaseapp.com',
+  projectId: 'mobile-itinerary-ccdfc',
+  storageBucket: 'mobile-itinerary-ccdfc.firebasestorage.app',
+  messagingSenderId: '339387721821',
+  appId: '1:339387721821:web:48bc74dab59165012cc5b4',
 };
 
 const emit = (name, detail) => window.dispatchEvent(new CustomEvent(name, { detail }));

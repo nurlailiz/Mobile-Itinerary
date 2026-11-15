@@ -63,7 +63,7 @@ python3 -m http.server 8000
 
 ## Online sync (Firebase)
 
-`cloud.js` connects to the Firebase project `mobile-itinerary-f5328` (Google sign-in + Firestore).
+`cloud.js` connects to the Firebase project `mobile-itinerary-ccdfc` (Google sign-in + Firestore).
 Each trip is one document in the `trips` collection: `{ json, updatedAt, members: [emails], owner }`.
 The Firestore security rules only let emails listed in `members` read or change a trip.
 The Firebase config in `cloud.js` is not a secret; access is enforced by those rules.
