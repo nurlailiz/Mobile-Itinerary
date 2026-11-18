@@ -398,3 +398,7 @@ input::-webkit-datetime-edit { padding: 0; }
 dialog.sheet { overflow-x: hidden; }
 dialog form, .field, .field-row > * { min-width: 0; }
 .card .legs .leg-body { flex: 1; min-width: 0; }
+.suggest { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 0; }
+.suggest::-webkit-scrollbar { display: none; }
+.suggest[hidden] { display: none; }
+.suggest .chip { white-space: nowrap; font-size: .85rem; }

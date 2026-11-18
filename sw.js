@@ -1,6 +1,6 @@
 // Offline support: cache the app shell, serve it cache-first, refresh in background.
 // Bump the version number whenever app files change; "⋯ → Update app" fetches the newest one.
-const CACHE = 'swipe-itinerary-v1.1'; // same number as APP_VERSION in app.js
+const CACHE = 'swipe-itinerary-v1.2'; // same number as APP_VERSION in app.js
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'cloud.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {

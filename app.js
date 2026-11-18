@@ -6,7 +6,7 @@
   const STORE_KEY = 'swipe-itinerary.v1'; // keep the same key so existing trips survive updates
   // App version shown in the footer. Goes up by 0.1 with every release; keep it equal to the
   // number in sw.js (CACHE = 'swipe-itinerary-v…') so phones pick up the new files.
-  const APP_VERSION = '1.1';
+  const APP_VERSION = '1.2';
   const footerHTML = () => `<footer class="app-footer">Swipe Itinerary · v${APP_VERSION}</footer>`;
 
   const MODES = [
@@ -822,6 +822,7 @@
             <label class="mini"><span>To (optional)</span>
               <input type="text" data-k="to" value="${esc(l.to)}" placeholder="e.g. Sadang Stn" autocomplete="off" /></label>
           </div>
+          <div class="suggest" data-suggest="${i}" hidden></div>
           <label class="mini"><span>Details (optional)</span>
             <input type="text" data-k="detail" value="${esc(l.detail)}" placeholder="Platform, exit, direction…" autocomplete="off" /></label>
         </div>
@@ -859,6 +860,61 @@
     const row = e.target.closest('[data-leg]');
     const k = e.target.dataset.k;
     if (row && ['detail', 'line', 'from', 'to'].includes(k)) legDraft[row.dataset.leg][k] = e.target.value;
+    if (k === 'from' || k === 'to') showStationSuggestions(e.target);
+  });
+
+  // ---- Station name suggestions (only names used in this same trip) ----
+  function tripStations(trip) {
+    const seen = new Map(); // lower-case name -> { name, n }
+    const add = (name) => {
+      const v = String(name || '').trim(); if (!v) return;
+      const key = v.toLowerCase(); const e = seen.get(key);
+      if (e) e.n++; else seen.set(key, { name: v, n: 1 });
+    };
+    trip.days.forEach((d) => d.items.forEach((it) => it.legs.forEach((l) => { add(l.from); add(l.to); })));
+    legDraft.forEach((l) => { add(l.from); add(l.to); }); // also what was just typed in this form
+    return [...seen.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name)).map((e) => e.name);
+  }
+  function showStationSuggestions(input) {
+    const row = input.closest('[data-leg]');
+    const box = row.querySelector('[data-suggest]');
+    const typed = input.value.trim().toLowerCase();
+    const matches = tripStations(itemCtx.trip)
+      .filter((n) => n.toLowerCase() !== typed && (!typed || n.toLowerCase().includes(typed)))
+      .slice(0, 8);
+    if (!matches.length) { box.hidden = true; box.innerHTML = ''; return; }
+    box.dataset.for = input.dataset.k;
+    box.innerHTML = matches.map((n) => `<button type="button" class="chip" data-station="${esc(n)}">📍 ${esc(n)}</button>`).join('');
+    box.hidden = false;
+  }
+  $('#legRows').addEventListener('focusin', (e) => {
+    if (e.target.dataset.k === 'from' || e.target.dataset.k === 'to') showStationSuggestions(e.target);
+  });
+  $('#legRows').addEventListener('focusout', (e) => {
+    const row = e.target.closest('[data-leg]');
+    if (!row || !(e.target.dataset.k === 'from' || e.target.dataset.k === 'to')) return;
+    setTimeout(() => {
+      const focused = document.activeElement;
+      if (!row.contains(focused) || !['from', 'to'].includes(focused.dataset.k)) {
+        const box = row.querySelector('[data-suggest]'); if (box) box.hidden = true;
+      }
+    }, 150);
+  });
+  // pointerdown + preventDefault keeps the keyboard open while tapping a suggestion
+  $('#legRows').addEventListener('pointerdown', (e) => { if (e.target.closest('[data-station]')) e.preventDefault(); });
+  $('#legRows').addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-station]');
+    if (!chip) return;
+    const row = chip.closest('[data-leg]');
+    const box = chip.closest('[data-suggest]');
+    const k = box.dataset.for;
+    const input = row.querySelector(`[data-k=${k}]`);
+    input.value = chip.dataset.station;
+    legDraft[row.dataset.leg][k] = input.value;
+    box.hidden = true;
+    // picked a From → go straight to To
+    const next = k === 'from' ? row.querySelector('[data-k=to]') : null;
+    if (next && !next.value) next.focus(); else input.blur();
   });
   $('#addLeg').addEventListener('click', () => {
     const prev = legDraft[legDraft.length - 1];
