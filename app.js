@@ -352,8 +352,10 @@
           <div style="height:12px"></div>
           <button class="btn" id="sampleTrip">Try a sample trip</button>
         </div>`}
+      <p class="app-version" id="appVersion"></p>
       <button class="fab" id="newTrip" aria-label="New trip">+</button>
     `;
+    appVersion().then((v) => { const el = $('#appVersion'); if (el && v) el.textContent = `App version ${v}`; });
     app.querySelectorAll('[data-trip]').forEach((b) => b.addEventListener('click', () => { location.hash = `#/trip/${b.dataset.trip}`; }));
     $('#newTrip').addEventListener('click', () => openTripDialog());
     $('#newTripEmpty')?.addEventListener('click', () => openTripDialog());
@@ -363,6 +365,7 @@
       { label: '🧪 Add sample trip', fn: createSample },
       { label: '⬇️ Back up all trips (JSON)', fn: exportJSON },
       { label: '⬆️ Restore from backup', fn: () => $('#importFile').click() },
+      { label: '🔄 Update app to latest version', fn: updateApp },
     ]));
   }
 
@@ -459,6 +462,7 @@
       { label: '💸 Spending summary (who paid)', fn: () => openSummary(trip) },
       ...(di >= 0 ? [{ label: '📋 Share / copy this day', fn: () => copyDay(trip, di) }] : []),
       { label: '⬇️ Back up trip (JSON)', fn: () => exportJSON(trip) },
+      { label: '🔄 Update app to latest version', fn: updateApp },
       { label: '🗑 Delete trip', fn: () => deleteTrip(trip), danger: true },
     ]));
     app.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => {
@@ -1747,6 +1751,66 @@
   window.addEventListener('online', () => { if (sync.state === 'offline') setSyncState('syncing'); scheduleSync(); });
   window.addEventListener('offline', () => { if (sync.user) setSyncState('offline'); });
   if (window.Cloud) onCloudReady();
+
+  // ---------- App updates ----------
+  // The installed app runs from an offline copy; this fetches the newest copy from the website.
+  // Trips live in separate storage (and online when signed in), so they are never touched.
+  async function appVersion() {
+    try {
+      const k = (await caches.keys()).find((n) => n.startsWith('swipe-itinerary-v'));
+      return k ? k.slice('swipe-itinerary-v'.length) : '';
+    } catch (e) { return ''; }
+  }
+  async function updateApp() {
+    if (!('serviceWorker' in navigator) || location.protocol === 'file:') { location.reload(); return; }
+    toast('🔄 Checking for a new version…');
+    // Never drop the offline copy unless the website is actually reachable
+    try {
+      const r = await fetch(`sw.js?check=${Date.now()}`, { cache: 'no-store' });
+      if (!r.ok) throw new Error(String(r.status));
+    } catch (e) {
+      toast('⚠️ Can’t update while offline — try again with internet');
+      return;
+    }
+    try { sessionStorage.setItem(STORE_KEY + '.updateFrom', (await appVersion()) || '?'); } catch (e) { /* ignore */ }
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) {
+        await reg.update();
+        const sw = reg.installing || reg.waiting;
+        if (sw && sw.state !== 'activated') {
+          await new Promise((done) => {
+            const t = setTimeout(done, 8000);
+            sw.addEventListener('statechange', () => { if (sw.state === 'activated' || sw.state === 'redundant') { clearTimeout(t); done(); } });
+          });
+        }
+      }
+      // Re-download every stored app file; each is replaced only once its new copy arrived,
+      // so the offline copy is never left empty or half-missing
+      const name = (await caches.keys()).find((k) => k.startsWith('swipe-itinerary-v'));
+      if (name) {
+        const cache = await caches.open(name);
+        await Promise.all((await cache.keys()).map(async (req) => {
+          try {
+            const res = await fetch(req.url, { cache: 'no-cache' });
+            if (res.ok) await cache.put(req, res);
+          } catch (e) { /* keep the old copy of this file */ }
+        }));
+      }
+    } catch (e) { /* reload anyway */ }
+    location.reload();
+  }
+  // After an update, say whether anything changed
+  (() => {
+    let from = null;
+    try { from = sessionStorage.getItem(STORE_KEY + '.updateFrom'); sessionStorage.removeItem(STORE_KEY + '.updateFrom'); } catch (e) { /* ignore */ }
+    if (from == null) return;
+    setTimeout(async () => {
+      const now = await appVersion();
+      toast(now && now !== from ? `✓ Updated to version ${now}` : `✓ You have the latest version${now ? ` (${now})` : ''}`);
+      const el = $('#appVersion'); if (el && now) el.textContent = `App version ${now}`;
+    }, 1200);
+  })();
 
   // ---------- Boot ----------
   if (db.loaded) save(); // persist the upgrade of older saved data (never overwrite unreadable data)

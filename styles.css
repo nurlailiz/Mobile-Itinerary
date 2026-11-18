@@ -77,7 +77,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .fab:active { transform: scale(.94); }
 
 /* ---------- Home ---------- */
-.trip-list { list-style: none; margin: 0; padding: 4px 16px 110px; display: grid; gap: 14px; }
+.trip-list { list-style: none; margin: 0; padding: 4px 16px 16px; display: grid; gap: 14px; }
 .trip-card {
   display: block; width: 100%; text-align: left; border: 0;
   background: var(--surface); border-radius: var(--radius); padding: 18px;
@@ -391,3 +391,4 @@ input::-webkit-date-and-time-value { text-align: left; margin: 0; }
 input::-webkit-datetime-edit { padding: 0; }
 dialog.sheet { overflow-x: hidden; }
 dialog form, .field, .field-row > * { min-width: 0; }
+.app-version { text-align: center; color: var(--muted); font-size: .75rem; margin: 0 0 100px; }

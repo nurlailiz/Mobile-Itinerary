@@ -40,6 +40,7 @@ Before Day 1 there's a **📊 Overview** dashboard for the whole trip:
 - **Currencies & rates** (⋯ menu or 💱 Rates): rates fill in automatically when you're online (free daily market rates, similar to XE), with an **XE ↗** link next to each rate to compare. You can still type your own rate, e.g. your money changer's. Totals are converted to RM by default. You can change this under *Edit trip → Convert totals to*.
 - **Share or copy a day as text**, and **JSON backup/restore**.
 - **Works offline** and can be **installed on your home screen** (PWA). Light and dark mode.
+- **⋯ → Update app to latest version** downloads the newest app files and reloads (trips are not affected). The version number is shown at the bottom of My Trips.
 - **Save online & share** (optional): sign in with Google to keep trips online, then use **⋯ → Share trip** to add someone by their Google email. Everyone on the trip sees and edits the same itinerary, and changes sync within seconds. Without signing in, trips stay on the device only.
 
 ## Run it
