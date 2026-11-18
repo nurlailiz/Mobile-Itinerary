@@ -6,7 +6,7 @@
   const STORE_KEY = 'swipe-itinerary.v1'; // keep the same key so existing trips survive updates
   // App version shown in the footer. Goes up by 0.1 with every release; keep it equal to the
   // number in sw.js (CACHE = 'swipe-itinerary-v…') so phones pick up the new files.
-  const APP_VERSION = '1.3';
+  const APP_VERSION = '1.4';
   const footerHTML = () => `<footer class="app-footer">Swipe Itinerary · v${APP_VERSION}</footer>`;
 
   const MODES = [
@@ -189,8 +189,11 @@
     return `${hh}:${String(m).padStart(2, '0')} ${ap}`;
   }
   const sym = (code) => (CUR[code] ? CUR[code].sym : code || '');
+  // Currencies normally written without decimals (₩ 2,150, ¥ 380, Rp 50,000…)
+  const NO_DECIMALS = new Set(['KRW', 'JPY', 'IDR', 'VND', 'KHR', 'TWD']);
   function fmtMoney(n, code, fixed2) {
-    const v = Number(n) || 0;
+    let v = Number(n) || 0;
+    if (NO_DECIMALS.has(code)) v = Math.round(v);
     const s = v.toLocaleString(undefined, { minimumFractionDigits: fixed2 || v % 1 ? 2 : 0, maximumFractionDigits: 2 });
     return code ? `${sym(code)} ${s}` : s;
   }
@@ -229,13 +232,31 @@
     if (count.has(trip.currency)) return trip.currency;
     return [...count.entries()].sort((a, b) => b[1] - a[1])[0][0];
   }
-  function fmtDual(trip, entries) {
+  function fmtDual(trip, entries, forceCode) {
     const b = sumBase(trip, entries);
-    const code = localCurrency(trip, entries);
+    const code = forceCode !== undefined ? forceCode : localCurrency(trip, entries);
     if (!code) return fmtBase(trip, b);
     const m = sumIn(trip, entries, code);
     const main = `${fmtMoney(m.total, code)}${m.missing.size ? '*' : ''}`;
     return b.missing.size && !b.total ? main : `${main} (≈ ${fmtBase(trip, b)})`;
+  }
+  // Two-line version for totals: local amount in bold with "≈ RM …" under it
+  function dualHTML(main, rm, cls = '') {
+    return `<span class="dual ${cls}"><b>${esc(main)}</b>${rm ? `<small>≈ ${esc(rm)}</small>` : ''}</span>`;
+  }
+  function dualStack(trip, entries, forceCode) {
+    const b = sumBase(trip, entries);
+    const code = forceCode !== undefined ? forceCode : localCurrency(trip, entries);
+    if (!code) return dualHTML(fmtBase(trip, b), '');
+    const m = sumIn(trip, entries, code);
+    const main = `${fmtMoney(m.total, code)}${m.missing.size ? '*' : ''}`;
+    return dualHTML(main, b.missing.size && !b.total ? '' : fmtBase(trip, b));
+  }
+  // An RM amount also shown in a local currency (e.g. what's left of the budget)
+  function dualStackBase(trip, baseAmount, code, cls) {
+    const r = code ? rateOf(trip, code) : 0;
+    const rm = fmtMoney(baseAmount, trip.base, true);
+    return r ? dualHTML(fmtMoney(baseAmount / r, code), rm, cls) : dualHTML(rm, '', cls);
   }
   const itemFees = (items) => items.flatMap((it) => it.fees);
   const tripFees = (trip) => trip.days.flatMap((d) => itemFees(d.items));
@@ -528,6 +549,8 @@
       ...(T.over > 0 ? [{ label: 'Spending over budget', v: { total: T.over, missing: new Set() }, color: '#ef4444' }] : []),
     ];
     const left = T.allocs.total - T.spent.total;
+    // Budget totals use one local currency throughout (e.g. ₩), alongside RM
+    const budgetCode = localCurrency(trip, [...trip.allocs, ...tripSpend(trip)]);
     const n = trip.travellers;
     app.innerHTML = `
       ${chrome}
@@ -556,7 +579,7 @@
           `${esc(catOf(c.category).label)}${c.paidBy ? ' · paid by ' + esc(c.paidBy) : ''}`)).join('')}</ul>`
           : '<div class="spend-empty">Add costs for the whole trip — e.g. flights, hotel bookings, hanbok rental, insurance.</div>'}
         <button class="btn add-row-btn" id="addCost">+ Add trip cost</button>
-        <div class="spend-foot"><div class="line"><span>Total trip costs</span><b>${esc(fmtBase(trip, T.costs))}</b></div></div>
+        <div class="spend-foot"><div class="line"><span>Total trip costs</span>${dualStack(trip, trip.costs)}</div></div>
       </section>
 
       <section class="spend">
@@ -565,10 +588,10 @@
           : '<div class="spend-empty">Set aside money for things like meals, lodging, transport and shopping.</div>'}
         <button class="btn add-row-btn" id="addAlloc">+ Add allocation</button>
         <div class="spend-foot">
-          <div class="line"><span>Allocated</span><b>${esc(fmtBase(trip, T.allocs))}</b></div>
-          <div class="line"><span>Spent during trip (daily spending)</span><b>${esc(fmtBase(trip, T.spent))}</b></div>
+          <div class="line"><span>Allocated</span>${dualStack(trip, trip.allocs, budgetCode)}</div>
+          <div class="line"><span>Spent so far<small class="sub">daily spending</small></span>${dualStack(trip, tripSpend(trip), budgetCode)}</div>
           ${trip.allocs.length ? `<div class="meter"><i style="width:${Math.min(100, T.allocs.total ? (T.spent.total / T.allocs.total) * 100 : 0)}%" class="${left < 0 ? 'over' : ''}"></i></div>
-          <div class="line grand"><span>${left < 0 ? 'Over budget by' : 'Left to spend'}</span><b class="${left < 0 ? 'warn' : ''}">${esc(fmtMoney(Math.abs(left), B, true))}</b></div>` : ''}
+          <div class="line grand"><span>${left < 0 ? 'Over budget by' : 'Left to spend'}</span>${dualStackBase(trip, Math.abs(left), budgetCode, left < 0 ? 'warn' : '')}</div>` : ''}
         </div>
       </section>
 
@@ -782,7 +805,7 @@
         <div class="spend-foot">
           ${people.length ? `<div class="people">${people.map(([who, v]) => `<span>${esc(who)} · ${esc(fmtBase(trip, v))}</span>`).join('')}</div>` : ''}
           <div class="line"><span>Spent today</span><b>${esc(fmtBase(trip, spent))}</b></div>
-          <div class="line"><span>Transport fees today</span><b>${esc(fmtDual(trip, itemFees(day.items)))}</b></div>
+          <div class="line"><span>Transport fees today</span>${dualStack(trip, itemFees(day.items))}</div>
           <div class="line grand"><span>Day total</span><b>${esc(fmtMoney(spent.total + fees.total, trip.base, true))}${missing.size ? '*' : ''}</b></div>
           ${missing.size ? `<div class="warn" style="font-size:.82rem">* No exchange rate yet for ${esc([...missing].join(', '))} — tap 💱 Rates.</div>` : ''}
         </div>

@@ -402,3 +402,8 @@ dialog form, .field, .field-row > * { min-width: 0; }
 .suggest::-webkit-scrollbar { display: none; }
 .suggest[hidden] { display: none; }
 .suggest .chip { white-space: nowrap; font-size: .85rem; }
+.spend-foot .line { align-items: flex-start; }
+.dual { display: grid; justify-items: end; text-align: right; font-variant-numeric: tabular-nums; }
+.dual small { color: var(--muted); font-size: .8rem; font-weight: 500; }
+.dual.warn b { color: inherit; }
+.spend-foot .line .sub { display: block; color: var(--muted); font-size: .75rem; }
