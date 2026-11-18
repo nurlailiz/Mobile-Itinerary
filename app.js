@@ -192,6 +192,24 @@
     return { total, missing };
   }
   const fmtBase = (trip, s) => `${fmtMoney(s.total, trip.base, true)}${s.missing.size ? '*' : ''}`;
+  // Sum of amounts expressed in one currency (amounts already in it are added as-is)
+  function sumIn(trip, entries, code) {
+    let total = 0; const missing = new Set();
+    entries.forEach((e) => {
+      if (e.currency === code) { total += num(e.amount); return; }
+      const v = toBase(trip, e.amount, e.currency); const r = rateOf(trip, code);
+      if (v == null || !r) missing.add(e.currency); else total += v / r;
+    });
+    return { total, missing };
+  }
+  // Total in the trip's main currency and in RM, e.g. "¥ 380 (≈ RM 11.02)"
+  function fmtDual(trip, entries) {
+    const b = sumBase(trip, entries);
+    if (trip.currency === trip.base) return fmtBase(trip, b);
+    const m = sumIn(trip, entries, trip.currency);
+    const main = `${fmtMoney(m.total, trip.currency)}${m.missing.size ? '*' : ''}`;
+    return b.missing.size && !b.total ? main : `${main} (≈ ${fmtBase(trip, b)})`;
+  }
   const itemFees = (items) => items.flatMap((it) => it.fees);
   const tripFees = (trip) => trip.days.flatMap((d) => itemFees(d.items));
   const tripSpend = (trip) => trip.days.flatMap((d) => d.spend);
@@ -530,7 +548,7 @@
           ${trip.days.map((d, i) => `<li><button class="spend-item" data-goday="${i}">
             <span class="cat-ic">${i + 1}</span>
             <div class="what"><b>${esc(d.title || 'Day ' + (i + 1))}</b><small>${esc(fmtDate(dayDate(trip, i)) || '')}${dayDate(trip, i) ? ' · ' : ''}${plural(d.items.length, 'activity', 'activities')}</small></div>
-            <div class="amt"><b>${esc(fmtBase(trip, sumBase(trip, d.spend)))}</b><small>🎫 transport ${esc(fmtBase(trip, sumBase(trip, itemFees(d.items))))}</small></div>
+            <div class="amt"><b>${esc(fmtBase(trip, sumBase(trip, d.spend)))}</b><small>🎫 transport ${esc(fmtDual(trip, itemFees(d.items)))}</small></div>
           </button></li>`).join('')}
         </ul>
       </section>
@@ -565,9 +583,9 @@
     const lines = fees.map((f) => compact
       ? `${f.label ? esc(f.label) + ': ' : ''}${esc(fmtMoney(f.amount, f.currency))}`
       : `<div class="fee-line"><span>${esc(f.label || (fees.length > 1 ? 'Fare' : ''))}</span><span>${esc(fmtMoney(f.amount, f.currency))}</span></div>`);
-    const total = needsTotal ? (s.missing.size
-      ? `≈ ${esc(fmtBase(trip, s))} <span class="warn">(no rate for ${esc([...s.missing].join(', '))})</span>`
-      : `≈ ${esc(fmtMoney(s.total, trip.base, true))}`) : '';
+    const total = needsTotal
+      ? `Total ${esc(fmtDual(trip, fees))}${s.missing.size ? ` <span class="warn">(no rate for ${esc([...s.missing].join(', '))})</span>` : ''}`
+      : '';
     return compact
       ? `${lines.join('<br>')}${total ? `<br><small>${total}</small>` : ''}`
       : `<div class="val">${lines.join('')}</div>${total ? `<div class="fee-sum">${total}</div>` : ''}`;
@@ -683,7 +701,6 @@
   }
 
   function sheetHTML(trip, items) {
-    const total = sumBase(trip, itemFees(items));
     return `
       <div class="table-wrap">
         <table>
@@ -700,7 +717,7 @@
               </tr>`;
             }).join('')}
           </tbody>
-          <tfoot><tr><td></td><td colspan="3">Total transport fees</td><td class="fee">${esc(fmtBase(trip, total))}</td><td></td></tr></tfoot>
+          <tfoot><tr><td></td><td colspan="3">Total transport fees</td><td class="fee">${esc(fmtDual(trip, itemFees(items)))}</td><td></td></tr></tfoot>
         </table>
       </div>
       <button class="btn add-row-btn" id="sheetAdd">+ Add row</button>`;
@@ -731,7 +748,7 @@
         <div class="spend-foot">
           ${people.length ? `<div class="people">${people.map(([who, v]) => `<span>${esc(who)} · ${esc(fmtBase(trip, v))}</span>`).join('')}</div>` : ''}
           <div class="line"><span>Spent today</span><b>${esc(fmtBase(trip, spent))}</b></div>
-          <div class="line"><span>Transport fees today</span><b>${esc(fmtBase(trip, fees))}</b></div>
+          <div class="line"><span>Transport fees today</span><b>${esc(fmtDual(trip, itemFees(day.items)))}</b></div>
           <div class="line grand"><span>Day total</span><b>${esc(fmtMoney(spent.total + fees.total, trip.base, true))}${missing.size ? '*' : ''}</b></div>
           ${missing.size ? `<div class="warn" style="font-size:.82rem">* No exchange rate yet for ${esc([...missing].join(', '))} — tap 💱 Rates.</div>` : ''}
         </div>
@@ -835,7 +852,7 @@
     const el = $('#feeTotal');
     if (!fees.length) { el.innerHTML = ''; return; }
     const s = sumBase(trip, fees);
-    el.innerHTML = `Total ≈ <b>${esc(fmtMoney(s.total, trip.base, true))}</b>${s.missing.size
+    el.innerHTML = `Total <b>${esc(fmtDual(trip, fees))}</b>${s.missing.size
       ? ` <span class="warn">· no rate for ${esc([...s.missing].join(', '))} (offline?)</span> <button type="button" id="feeRates">Set rate</button>` : ''}`;
     $('#feeRates')?.addEventListener('click', () => openRatesDialog(trip, () => updateFeeTotal()));
   }
@@ -1383,7 +1400,7 @@
       it.fees.forEach((f) => lines.push(`   🎫 ${f.label ? f.label + ': ' : ''}${fmtMoney(f.amount, f.currency)}`));
       if (it.remarks) lines.push(`   📝 ${it.remarks}`);
     });
-    lines.push('', `Transport fees: ${fmtBase(trip, sumBase(trip, itemFees(d.items)))}`);
+    lines.push('', `Transport fees: ${fmtDual(trip, itemFees(d.items))}`);
     if (d.spend.length) {
       lines.push('', '💸 Spending');
       d.spend.forEach((s) => {
