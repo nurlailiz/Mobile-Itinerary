@@ -1,5 +1,5 @@
 // Offline support: cache the app shell, serve it cache-first, refresh in background.
-const CACHE = 'swipe-itinerary-v10';
+const CACHE = 'swipe-itinerary-v11';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'cloud.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {

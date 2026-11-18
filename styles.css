@@ -31,7 +31,7 @@
   }
 }
 
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 html, body { margin: 0; height: 100%; }
 body {
   font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -202,7 +202,7 @@ dialog form { padding: 8px 18px calc(18px + var(--safe-bottom)); display: grid; 
 dialog h2 { margin: 0; font-size: 1.2rem; }
 .field { display: grid; gap: 6px; min-width: 0; }
 .field > span { font-size: .78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 input, textarea, select {
   font: inherit; color: inherit; width: 100%; min-width: 0;
   padding: 12px 14px; border-radius: 14px; border: 1.5px solid var(--line); background: var(--bg);
@@ -379,3 +379,15 @@ a.xe { flex: none; font-size: .8rem; font-weight: 700; color: var(--brand); text
 .share-add { grid-template-columns: 1fr auto; }
 .share-steps { margin: 0; padding-left: 20px; color: var(--muted); font-size: .88rem; display: grid; gap: 4px; }
 .share-steps b { color: var(--text); word-break: break-all; }
+
+/* iPhone Safari gives time/date fields a wide built-in minimum width, which pushed
+   the "Until" box off-screen. Let them shrink to their column like other inputs. */
+input[type="time"], input[type="date"] {
+  -webkit-appearance: none; appearance: none;
+  display: block; min-width: 0; max-width: 100%; width: 100%;
+  min-height: 48px; text-align: left;
+}
+input::-webkit-date-and-time-value { text-align: left; margin: 0; }
+input::-webkit-datetime-edit { padding: 0; }
+dialog.sheet { overflow-x: hidden; }
+dialog form, .field, .field-row > * { min-width: 0; }
