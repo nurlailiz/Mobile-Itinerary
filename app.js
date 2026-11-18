@@ -6,7 +6,7 @@
   const STORE_KEY = 'swipe-itinerary.v1'; // keep the same key so existing trips survive updates
   // App version shown in the footer. Goes up by 0.1 with every release; keep it equal to the
   // number in sw.js (CACHE = 'swipe-itinerary-v…') so phones pick up the new files.
-  const APP_VERSION = '1.0';
+  const APP_VERSION = '1.1';
   const footerHTML = () => `<footer class="app-footer">Swipe Itinerary · v${APP_VERSION}</footer>`;
 
   const MODES = [
@@ -30,7 +30,19 @@
     car: ['Car / plate', 'e.g. rental car'], bike: ['Bike', 'e.g. bike share'], other: ['Name / number', ''], '': ['Line / number', 'e.g. Bus 205'],
   };
   const lineHint = (mode) => LINE_HINT[mode] || LINE_HINT[''];
-  const legLabel = (l) => (l.line && l.detail ? `${l.line} – ${l.detail}` : l.line || l.detail || modeOf(l.mode).label);
+  // "Myeongdong Stn → Sadang Stn" from the From / To boxes
+  const legRoute = (l) => (l.from && l.to ? `${l.from} → ${l.to}` : l.from ? `From ${l.from}` : l.to ? `→ ${l.to}` : '');
+  const legLabel = (l) => [l.line, legRoute(l), l.detail].filter(Boolean).join(' · ') || modeOf(l.mode).label;
+  function normalizeLeg(l) {
+    const leg = {
+      mode: modeOf(l?.mode).id, line: String(l?.line || '').trim(),
+      from: String(l?.from || '').trim(), to: String(l?.to || '').trim(), detail: String(l?.detail || '').trim(),
+    };
+    // Older trips typed "From → To" into Details: move it into the From / To boxes (one arrow only)
+    const m = !leg.from && !leg.to && leg.detail.match(/^([^→]+?)\s*(?:→|->)\s*([^→]+)$/);
+    if (m && !m[2].includes('->')) { leg.from = m[1].trim(); leg.to = m[2].trim(); leg.detail = ''; }
+    return leg;
+  }
   const legsText = (legs) => legs.map((l) => `${modeOf(l.mode).icon} ${legLabel(l)}`).join(' → ');
   const transferText = (n) => (n > 1 ? `${n - 1} transfer${n > 2 ? 's' : ''}` : '');
 
@@ -96,8 +108,8 @@
         activity: String(it?.activity || 'Untitled'),
         // v1/v2 had a single mode + transport text; now a list of legs (for transfers)
         legs: (Array.isArray(it?.legs) ? it.legs : (it?.mode || it?.transport ? [{ mode: it.mode, detail: it.transport }] : []))
-          .map((l) => ({ mode: modeOf(l?.mode).id, line: String(l?.line || '').trim(), detail: String(l?.detail || '').trim() }))
-          .filter((l) => l.mode || l.line || l.detail),
+          .map((l) => normalizeLeg(l))
+          .filter((l) => l.mode || l.line || l.from || l.to || l.detail),
         fees: Array.isArray(it?.fees)
           ? it.fees.map(fee).filter((f) => f.amount > 0)
           : (num(it?.fee) > 0 ? [{ id: uid(), label: '', amount: num(it.fee), currency }] : []),
@@ -601,8 +613,12 @@
   // One transport leg: coloured badge for the bus no. / line, then the details
   function legHTML(l) {
     const m = modeOf(l.mode);
+    const route = l.from && l.to ? `${esc(l.from)} <span class="arrow">→</span> ${esc(l.to)}`
+      : l.from ? `From ${esc(l.from)}` : l.to ? `<span class="arrow">→</span> ${esc(l.to)}` : '';
+    const main = route || (!l.line ? esc(l.detail || m.label) : '');
+    const note = route || l.line ? l.detail : '';
     return `<b class="leg-text">${l.line ? `<span class="line-badge" style="--accent:${m.color}">${esc(l.line)}</span>` : ''}${
-      l.detail || !l.line ? `<span>${esc(l.detail || (l.line ? '' : m.label))}</span>` : ''}</b>`;
+      main ? `<span>${main}</span>` : ''}</b>${note ? `<small class="leg-note">${esc(note)}</small>` : ''}`;
   }
 
   function cardsHTML(trip, day, items) {
@@ -619,7 +635,7 @@
             <div class="row">
               <div class="ic">${m.icon}</div>
               <div><div class="lbl">Transport${it.legs.length > 1 ? ' · ' + transferText(it.legs.length) : it.legs[0]?.mode ? ' · ' + esc(m.label) : ''}</div>
-                ${it.legs.length > 1 ? `<ol class="legs">${it.legs.map((l) => `<li><span>${modeOf(l.mode).icon}</span>${legHTML(l)}</li>`).join('')}</ol>`
+                ${it.legs.length > 1 ? `<ol class="legs">${it.legs.map((l) => `<li><span>${modeOf(l.mode).icon}</span><div class="leg-body">${legHTML(l)}</div></li>`).join('')}</ol>`
                   : `<div class="val ${it.legs.length ? '' : 'muted'}">${it.legs.length ? legHTML(it.legs[0]) : 'Not set'}</div>`}</div>
             </div>
             <div class="row">
@@ -796,17 +812,33 @@
           <button type="button" class="rm" data-rmleg="${i}" aria-label="Remove leg ${i + 1}">✕</button></div>` : ''}
         <div class="chips">${MODES.map((m) =>
           `<button type="button" class="chip ${m.id === l.mode ? 'on' : ''}" data-mode="${m.id}">${m.icon} ${esc(m.label)}</button>`).join('')}</div>
-        <div class="leg-fields ${l.mode === 'walk' ? 'no-line' : ''}">
-          <label class="mini"><span data-linelabel>${esc(lineHint(l.mode)[0])}</span>
+        <div class="leg-fields ${l.mode === 'walk' && !l.line ? 'no-line' : ''}">
+          <label class="mini line-box"><span data-linelabel>${esc(lineHint(l.mode)[0])}</span>
             <input type="text" data-k="line" value="${esc(l.line)}" placeholder="${esc(lineHint(l.mode)[1])}" autocomplete="off" /></label>
-          <label class="mini"><span>Details</span>
-            <input type="text" data-k="detail" value="${esc(l.detail)}" placeholder="From / to, platform, exit…" autocomplete="off" /></label>
+          <div class="from-to">
+            <label class="mini"><span>From (optional)</span>
+              <input type="text" data-k="from" value="${esc(l.from)}" placeholder="e.g. Myeongdong Stn" autocomplete="off" /></label>
+            <button type="button" class="swap" data-swap="${i}" aria-label="Swap from and to">⇄</button>
+            <label class="mini"><span>To (optional)</span>
+              <input type="text" data-k="to" value="${esc(l.to)}" placeholder="e.g. Sadang Stn" autocomplete="off" /></label>
+          </div>
+          <label class="mini"><span>Details (optional)</span>
+            <input type="text" data-k="detail" value="${esc(l.detail)}" placeholder="Platform, exit, direction…" autocomplete="off" /></label>
         </div>
       </div>`).join('');
   }
   $('#legRows').addEventListener('click', (e) => {
     const chip = e.target.closest('[data-mode]');
     const rm = e.target.closest('[data-rmleg]');
+    const swap = e.target.closest('[data-swap]');
+    if (swap) {
+      const l = legDraft[Number(swap.dataset.swap)];
+      [l.from, l.to] = [l.to, l.from];
+      const row = swap.closest('[data-leg]');
+      row.querySelector('[data-k=from]').value = l.from;
+      row.querySelector('[data-k=to]').value = l.to;
+      return;
+    }
     if (chip) {
       const i = Number(chip.closest('[data-leg]').dataset.leg);
       const mode = chip.dataset.mode;
@@ -826,11 +858,11 @@
   $('#legRows').addEventListener('input', (e) => {
     const row = e.target.closest('[data-leg]');
     const k = e.target.dataset.k;
-    if (row && (k === 'detail' || k === 'line')) legDraft[row.dataset.leg][k] = e.target.value;
+    if (row && ['detail', 'line', 'from', 'to'].includes(k)) legDraft[row.dataset.leg][k] = e.target.value;
   });
   $('#addLeg').addEventListener('click', () => {
     const prev = legDraft[legDraft.length - 1];
-    legDraft.push({ mode: prev && prev.mode !== 'walk' ? prev.mode : '', line: '', detail: '' });
+    legDraft.push({ mode: prev && prev.mode !== 'walk' ? prev.mode : '', line: '', from: (prev && prev.to) || '', to: '', detail: '' });
     renderLegRows();
     const rows = $('#legRows').querySelectorAll('.leg-row');
     rows[rows.length - 1]?.scrollIntoView({ block: 'nearest' });
@@ -909,7 +941,7 @@
       feeDraft = [];
     }
     if (!feeDraft.length) feeDraft.push({ label: '', amount: '', currency: trip.currency });
-    if (!legDraft.length) legDraft.push({ mode: '', line: '', detail: '' });
+    if (!legDraft.length) legDraft.push({ mode: '', line: '', from: '', to: '', detail: '' });
     renderLegRows();
     renderFeeRows();
     itemDialog.showModal();
@@ -928,7 +960,7 @@
       .map((x) => ({ id: uid(), label: x.label.trim(), amount: num(x.amount), currency: normCur(x.currency) || trip.currency }));
     const data = {
       time: f.time.value, endTime: f.endTime.value, activity,
-      legs: legDraft.map((l) => ({ mode: l.mode, line: (l.line || '').trim(), detail: l.detail.trim() })).filter((l) => l.mode || l.line || l.detail),
+      legs: legDraft.map((l) => normalizeLeg({ ...l, detail: (l.detail || '').trim() })).filter((l) => l.mode || l.line || l.from || l.to || l.detail),
       fees, remarks: f.remarks.value.trim(),
     };
     let target;

@@ -343,9 +343,12 @@ td.fee small { color: var(--muted); }
 .card .legs b { font-weight: 600; word-break: break-word; }
 
 /* ---------- Leg line / number ---------- */
-.leg-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 8px; }
-.leg-fields.no-line { grid-template-columns: 1fr; }
-.leg-fields.no-line .mini:first-child { display: none; }
+.leg-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.leg-fields.no-line .line-box { display: none; }
+.from-to { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 6px; align-items: end; }
+.from-to .swap { width: 34px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: var(--brand); font-size: 1.1rem; }
+.leg-text .arrow { color: var(--muted); font-weight: 500; }
+.leg-note { display: block; color: var(--muted); font-size: .85em; font-weight: 500; margin-top: 2px; }
 label.mini { display: grid; gap: 4px; min-width: 0; }
 label.mini > span { font-size: .72rem; font-weight: 600; color: var(--muted); }
 .line-badge {
@@ -394,3 +397,4 @@ input::-webkit-date-and-time-value { text-align: left; margin: 0; }
 input::-webkit-datetime-edit { padding: 0; }
 dialog.sheet { overflow-x: hidden; }
 dialog form, .field, .field-row > * { min-width: 0; }
+.card .legs .leg-body { flex: 1; min-width: 0; }

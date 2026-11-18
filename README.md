@@ -8,7 +8,7 @@ Each **row** (activity) holds:
 |---|---|
 | Time (+ optional end time) | 08:30 → 09:45 |
 | Activity | Kansai Airport → Kyoto Station |
-| Transportation (one or more legs, for transfers) | 🚌 Bus 205 → 🚆 JR Nara Line |
+| Transportation (one or more legs, for transfers): type, line / bus no., From, To, details | 🚇 Line 4 Myeongdong Stn → Sadang Stn, 🚌 7800 Sadang Stn Exit 9 → Sungkyunkwan University |
 | Transport fees (as many fares as you need, each in any currency) | Bus 206 ¥230 + JR Nara Line ¥150 → ≈ RM 11.02 |
 | Remarks | Buy ICOCA & Haruka combo at ticket office |
 
