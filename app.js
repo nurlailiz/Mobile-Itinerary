@@ -4,6 +4,10 @@
   'use strict';
 
   const STORE_KEY = 'swipe-itinerary.v1'; // keep the same key so existing trips survive updates
+  // App version shown in the footer. Goes up by 0.1 with every release; keep it equal to the
+  // number in sw.js (CACHE = 'swipe-itinerary-v…') so phones pick up the new files.
+  const APP_VERSION = '1.0';
+  const footerHTML = () => `<footer class="app-footer">Swipe Itinerary · v${APP_VERSION}</footer>`;
 
   const MODES = [
     { id: '', label: 'None', icon: '📍', color: '#64748b' },
@@ -352,10 +356,9 @@
           <div style="height:12px"></div>
           <button class="btn" id="sampleTrip">Try a sample trip</button>
         </div>`}
-      <p class="app-version" id="appVersion"></p>
+      ${footerHTML()}
       <button class="fab" id="newTrip" aria-label="New trip">+</button>
     `;
-    appVersion().then((v) => { const el = $('#appVersion'); if (el && v) el.textContent = `App version ${v}`; });
     app.querySelectorAll('[data-trip]').forEach((b) => b.addEventListener('click', () => { location.hash = `#/trip/${b.dataset.trip}`; }));
     $('#newTrip').addEventListener('click', () => openTripDialog());
     $('#newTripEmpty')?.addEventListener('click', () => openTripDialog());
@@ -421,7 +424,7 @@
       ${ui.view === 'cards' ? cardsHTML(trip, day, items) : sheetHTML(trip, items)}
 
       ${spendHTML(trip, day)}
-      <div class="after-spend"></div>
+      ${footerHTML()}
 
       <button class="fab" id="addItem" aria-label="Add activity">+</button>
     `;
@@ -556,7 +559,7 @@
           </button></li>`).join('')}
         </ul>
       </section>
-      <div class="after-spend"></div>
+      ${footerHTML()}
 
       <button class="fab" id="addCostFab" aria-label="Add trip cost">+</button>
     `;
@@ -1755,12 +1758,6 @@
   // ---------- App updates ----------
   // The installed app runs from an offline copy; this fetches the newest copy from the website.
   // Trips live in separate storage (and online when signed in), so they are never touched.
-  async function appVersion() {
-    try {
-      const k = (await caches.keys()).find((n) => n.startsWith('swipe-itinerary-v'));
-      return k ? k.slice('swipe-itinerary-v'.length) : '';
-    } catch (e) { return ''; }
-  }
   async function updateApp() {
     if (!('serviceWorker' in navigator) || location.protocol === 'file:') { location.reload(); return; }
     toast('🔄 Checking for a new version…');
@@ -1772,7 +1769,7 @@
       toast('⚠️ Can’t update while offline — try again with internet');
       return;
     }
-    try { sessionStorage.setItem(STORE_KEY + '.updateFrom', (await appVersion()) || '?'); } catch (e) { /* ignore */ }
+    try { sessionStorage.setItem(STORE_KEY + '.updateFrom', APP_VERSION); } catch (e) { /* ignore */ }
     try {
       const reg = await navigator.serviceWorker.getRegistration();
       if (reg) {
@@ -1805,11 +1802,9 @@
     let from = null;
     try { from = sessionStorage.getItem(STORE_KEY + '.updateFrom'); sessionStorage.removeItem(STORE_KEY + '.updateFrom'); } catch (e) { /* ignore */ }
     if (from == null) return;
-    setTimeout(async () => {
-      const now = await appVersion();
-      toast(now && now !== from ? `✓ Updated to version ${now}` : `✓ You have the latest version${now ? ` (${now})` : ''}`);
-      const el = $('#appVersion'); if (el && now) el.textContent = `App version ${now}`;
-    }, 1200);
+    setTimeout(() => {
+      toast(APP_VERSION !== from ? `✓ Updated to v${APP_VERSION}` : `✓ You have the latest version (v${APP_VERSION})`);
+    }, 800);
   })();
 
   // ---------- Boot ----------

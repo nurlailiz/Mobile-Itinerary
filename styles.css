@@ -287,7 +287,10 @@ td.fee small { color: var(--muted); }
 .spend-foot .people { display: flex; flex-wrap: wrap; gap: 6px; }
 .spend-foot .people span { background: var(--surface); border-radius: 999px; padding: 3px 10px; font-size: .82rem; }
 .spend-foot .grand { font-size: 1rem; border-top: 1px solid var(--line); padding-top: 6px; }
-.after-spend { height: 110px; }
+.app-footer {
+  margin-top: auto; padding: 36px 90px calc(40px + var(--safe-bottom)); /* sits beside the + button, below content */
+  text-align: center; color: var(--muted); font-size: .75rem; letter-spacing: .02em;
+}
 
 /* Trip spending summary */
 .summary-table { width: 100%; min-width: 0; font-size: .95rem; }
@@ -391,4 +394,3 @@ input::-webkit-date-and-time-value { text-align: left; margin: 0; }
 input::-webkit-datetime-edit { padding: 0; }
 dialog.sheet { overflow-x: hidden; }
 dialog form, .field, .field-row > * { min-width: 0; }
-.app-version { text-align: center; color: var(--muted); font-size: .75rem; margin: 0 0 100px; }
