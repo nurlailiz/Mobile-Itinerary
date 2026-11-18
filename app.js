@@ -6,7 +6,7 @@
   const STORE_KEY = 'swipe-itinerary.v1'; // keep the same key so existing trips survive updates
   // App version shown in the footer. Goes up by 0.1 with every release; keep it equal to the
   // number in sw.js (CACHE = 'swipe-itinerary-v…') so phones pick up the new files.
-  const APP_VERSION = '1.2';
+  const APP_VERSION = '1.3';
   const footerHTML = () => `<footer class="app-footer">Swipe Itinerary · v${APP_VERSION}</footer>`;
 
   const MODES = [
@@ -219,11 +219,22 @@
     return { total, missing };
   }
   // Total in the trip's main currency and in RM, e.g. "¥ 380 (≈ RM 11.02)"
+  // Which local currency to show next to RM: the one the fares are actually in
+  // (if they use one), else the trip's main currency, else the most-used one.
+  function localCurrency(trip, entries) {
+    const count = new Map();
+    entries.forEach((e) => { if (e.currency !== trip.base) count.set(e.currency, (count.get(e.currency) || 0) + 1); });
+    if (!count.size) return trip.currency !== trip.base ? trip.currency : null;
+    if (count.size === 1) return [...count.keys()][0];
+    if (count.has(trip.currency)) return trip.currency;
+    return [...count.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  }
   function fmtDual(trip, entries) {
     const b = sumBase(trip, entries);
-    if (trip.currency === trip.base) return fmtBase(trip, b);
-    const m = sumIn(trip, entries, trip.currency);
-    const main = `${fmtMoney(m.total, trip.currency)}${m.missing.size ? '*' : ''}`;
+    const code = localCurrency(trip, entries);
+    if (!code) return fmtBase(trip, b);
+    const m = sumIn(trip, entries, code);
+    const main = `${fmtMoney(m.total, code)}${m.missing.size ? '*' : ''}`;
     return b.missing.size && !b.total ? main : `${main} (≈ ${fmtBase(trip, b)})`;
   }
   const itemFees = (items) => items.flatMap((it) => it.fees);
@@ -603,7 +614,7 @@
       ? `${f.label ? esc(f.label) + ': ' : ''}${esc(fmtMoney(f.amount, f.currency))}`
       : `<div class="fee-line"><span>${esc(f.label || (fees.length > 1 ? 'Fare' : ''))}</span><span>${esc(fmtMoney(f.amount, f.currency))}</span></div>`);
     const total = needsTotal
-      ? `Total ${esc(fmtDual(trip, fees))}${s.missing.size ? ` <span class="warn">(no rate for ${esc([...s.missing].join(', '))})</span>` : ''}`
+      ? `${fees.length > 1 ? `Total ${esc(fmtDual(trip, fees))}` : `≈ ${esc(fmtBase(trip, s))}`}${s.missing.size ? ` <span class="warn">(no rate for ${esc([...s.missing].join(', '))})</span>` : ''}`
       : '';
     return compact
       ? `${lines.join('<br>')}${total ? `<br><small>${total}</small>` : ''}`
