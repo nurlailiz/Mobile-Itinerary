@@ -6,7 +6,7 @@
   const STORE_KEY = 'swipe-itinerary.v1'; // keep the same key so existing trips survive updates
   // App version shown in the footer. Goes up by 0.1 with every release; keep it equal to the
   // number in sw.js (CACHE = 'swipe-itinerary-v…') so phones pick up the new files.
-  const APP_VERSION = '1.5';
+  const APP_VERSION = '1.6';
   const footerHTML = () => `<footer class="app-footer">Swipe Itinerary · v${APP_VERSION}</footer>`;
 
   const MODES = [
@@ -567,12 +567,17 @@
     const B = trip.base;
     const grand = T.total.total;
     const pct = (v) => (grand > 0 ? (v / grand) * 100 : 0);
+    // Each part is shown in the currency it was entered in (e.g. ₩) with RM under it
     const segs = [
-      { label: 'Trip costs', v: T.costs, color: '#0284c7' },
-      { label: 'Transport fees (from days)', v: T.fees, color: '#14b8a6' },
-      { label: 'Budget allocations', v: T.allocs, color: '#f59e0b' },
-      ...(T.over > 0 ? [{ label: 'Spending over budget', v: { total: T.over, missing: new Set() }, color: '#ef4444' }] : []),
+      { label: 'Trip costs', v: T.costs, color: '#0284c7', html: dualStack(trip, trip.costs) },
+      { label: 'Transport fees (from days)', v: T.fees, color: '#14b8a6', html: dualStack(trip, tripFees(trip)) },
+      { label: 'Budget allocations', v: T.allocs, color: '#f59e0b', html: dualStack(trip, trip.allocs) },
+      ...(T.over > 0 ? [{ label: 'Spending over budget', v: { total: T.over, missing: new Set() }, color: '#ef4444',
+        html: dualStackBase(trip, T.over, localCurrency(trip, tripSpend(trip))) }] : []),
     ];
+    // The whole trip in the local currency too, e.g. "≈ ₩ 1,930,000"
+    const tripCode = localCurrency(trip, [...trip.costs, ...tripFees(trip), ...trip.allocs, ...tripSpend(trip)]);
+    const inLocal = (rm) => (tripCode && rateOf(trip, tripCode) ? fmtMoney(rm / rateOf(trip, tripCode), tripCode) : '');
     const left = T.allocs.total - T.spent.total;
     // Budget totals use one local currency throughout (e.g. ₩), alongside RM
     const budgetCode = localCurrency(trip, [...trip.allocs, ...tripSpend(trip)]);
@@ -583,8 +588,9 @@
       <section class="dash-hero">
         <div class="lbl">Estimated total trip cost</div>
         <div class="big">${esc(fmtBase(trip, T.total))}</div>
+        ${inLocal(grand) ? `<div class="big-local">≈ ${esc(inLocal(grand))}</div>` : ''}
         <div class="pp">
-          <span>≈ <b>${esc(fmtMoney(grand / n, B, true))}</b> per person</span>
+          <span>≈ <b>${esc(fmtMoney(grand / n, B, true))}</b>${inLocal(grand / n) ? ` (${esc(inLocal(grand / n))})` : ''} per person</span>
           <span class="stepper" aria-label="Number of travellers">
             <button data-trav="-1" aria-label="Fewer travellers">−</button>
             <span>👥 ${n}</span>
@@ -593,7 +599,7 @@
         </div>
         <div class="bar">${segs.map((g) => `<i style="width:${pct(g.v.total)}%;background:${g.color}"></i>`).join('')}</div>
         <ul class="legend">
-          ${segs.map((g) => `<li><i style="background:${g.color}"></i><span>${g.label}</span><b>${esc(fmtBase(trip, g.v))}</b></li>`).join('')}
+          ${segs.map((g) => `<li><i style="background:${g.color}"></i><span>${g.label}</span>${g.html}</li>`).join('')}
         </ul>
         ${T.total.missing.size ? `<div class="warn" style="font-size:.82rem;margin-top:6px">* No exchange rate yet for ${esc([...T.total.missing].join(', '))} — not counted. <button class="link-btn" id="dashRates">Set rates</button></div>` : ''}
       </section>

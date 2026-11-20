@@ -414,3 +414,8 @@ dialog form, .field, .field-row > * { min-width: 0; }
 .for-who { color: var(--brand); font-weight: 600; }
 .dual b, .dual small { white-space: nowrap; }
 .alloc-people .who { flex: 1; }
+.dash-hero .big-local { margin: -4px 0 8px; font-size: 1.05rem; font-weight: 600; opacity: .9; font-variant-numeric: tabular-nums; }
+.legend li { align-items: flex-start; }
+.legend li i { margin-top: 5px; }
+.legend .dual b { color: #fff; }
+.legend .dual small { color: rgba(255, 255, 255, .78); }
