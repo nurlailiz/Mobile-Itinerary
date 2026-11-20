@@ -407,3 +407,10 @@ dialog form, .field, .field-row > * { min-width: 0; }
 .dual small { color: var(--muted); font-size: .8rem; font-weight: 500; }
 .dual.warn b { color: inherit; }
 .spend-foot .line .sub { display: block; color: var(--muted); font-size: .75rem; }
+.alloc-people { display: grid; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.alloc-people .ap { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.alloc-people .who { font-weight: 600; min-width: 0; }
+.alloc-people .who small { display: block; color: var(--muted); font-weight: 400; font-size: .78rem; }
+.for-who { color: var(--brand); font-weight: 600; }
+.dual b, .dual small { white-space: nowrap; }
+.alloc-people .who { flex: 1; }

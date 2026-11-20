@@ -6,7 +6,7 @@
   const STORE_KEY = 'swipe-itinerary.v1'; // keep the same key so existing trips survive updates
   // App version shown in the footer. Goes up by 0.1 with every release; keep it equal to the
   // number in sw.js (CACHE = 'swipe-itinerary-v…') so phones pick up the new files.
-  const APP_VERSION = '1.4';
+  const APP_VERSION = '1.5';
   const footerHTML = () => `<footer class="app-footer">Swipe Itinerary · v${APP_VERSION}</footer>`;
 
   const MODES = [
@@ -129,7 +129,8 @@
       id: id(t.id), name: String(t.name || 'Trip'), startDate: String(t.startDate || ''),
       base, currency, rates, ratesUpdated: String(t.ratesUpdated || ''), days,
       costs: (Array.isArray(t.costs) ? t.costs : []).map(money),
-      allocs: (Array.isArray(t.allocs) ? t.allocs : []).map((a) => ({ ...money(a), paidBy: '' })),
+      // forWho: optional person the money is set aside for (e.g. "Lee")
+      allocs: (Array.isArray(t.allocs) ? t.allocs : []).map((a) => ({ ...money(a), paidBy: '', forWho: String(a?.forWho || '').trim() })),
       travellers: Math.max(1, Math.min(99, parseInt(t.travellers, 10) || 1)),
       lastPayer: String(t.lastPayer || ''), lastSpendCurrency: normCur(t.lastSpendCurrency) || '',
       // Online sharing: emails that can open this trip (empty = only on this phone so far)
@@ -305,6 +306,7 @@
   function knownPayers(trip) {
     const count = new Map();
     [...tripSpend(trip), ...trip.costs].forEach((s) => { const p = s.paidBy.trim(); if (p) count.set(p, (count.get(p) || 0) + 1); });
+    trip.allocs.forEach((a) => { const p = (a.forWho || '').trim(); if (p) count.set(p, (count.get(p) || 0) + 1); });
     return [...count.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
   }
 
@@ -538,6 +540,29 @@
     </button></li>`;
   }
 
+  // Allocations per person: what's set aside for them, and what they've paid in daily spending
+  function allocPeopleHTML(trip, code) {
+    const people = new Map(); // lower-case name -> { name, list }
+    trip.allocs.forEach((a) => {
+      if (!a.forWho) return;
+      const key = a.forWho.toLowerCase();
+      if (!people.has(key)) people.set(key, { name: a.forWho, list: [] });
+      people.get(key).list.push(a);
+    });
+    if (!people.size) return '';
+    const shared = trip.allocs.filter((a) => !a.forWho);
+    return `<div class="alloc-people">
+      ${[...people.values()].map((p) => {
+        const paid = tripSpend(trip).filter((s) => s.paidBy.trim().toLowerCase() === p.name.toLowerCase());
+        return `<div class="ap">
+          <span class="who">🙋 ${esc(p.name)}<small>${esc(p.list.map((a) => catOf(a.category).label).filter((v, i, x) => x.indexOf(v) === i).join(', '))}</small>${paid.length ? `<small>paid ${esc(code ? fmtMoney(sumIn(trip, paid, code).total, code) : fmtBase(trip, sumBase(trip, paid)))} so far</small>` : ''}</span>
+          ${dualStack(trip, p.list, code)}
+        </div>`;
+      }).join('')}
+      ${shared.length ? `<div class="ap"><span class="who">👥 Shared<small>not for one person</small></span>${dualStack(trip, shared, code)}</div>` : ''}
+    </div>`;
+  }
+
   function renderOverview(trip, chrome, T) {
     const B = trip.base;
     const grand = T.total.total;
@@ -584,10 +609,11 @@
 
       <section class="spend">
         <div class="spend-head"><h2>🍱 Budget allocations</h2><span class="muted-note">Money set aside</span></div>
-        ${trip.allocs.length ? `<ul class="spend-list">${trip.allocs.map((a) => moneyRow(trip, a, 'data-alloc', esc(catOf(a.category).label))).join('')}</ul>`
+        ${trip.allocs.length ? `<ul class="spend-list">${trip.allocs.map((a) => moneyRow(trip, a, 'data-alloc', `${esc(catOf(a.category).label)}${a.forWho ? ` · for <b class="for-who">${esc(a.forWho)}</b>` : ''}`)).join('')}</ul>`
           : '<div class="spend-empty">Set aside money for things like meals, lodging, transport and shopping.</div>'}
         <button class="btn add-row-btn" id="addAlloc">+ Add allocation</button>
         <div class="spend-foot">
+          ${allocPeopleHTML(trip, budgetCode)}
           <div class="line"><span>Allocated</span>${dualStack(trip, trip.allocs, budgetCode)}</div>
           <div class="line"><span>Spent so far<small class="sub">daily spending</small></span>${dualStack(trip, tripSpend(trip), budgetCode)}</div>
           ${trip.allocs.length ? `<div class="meter"><i style="width:${Math.min(100, T.allocs.total ? (T.spent.total / T.allocs.total) * 100 : 0)}%" class="${left < 0 ? 'over' : ''}"></i></div>
@@ -1163,16 +1189,17 @@
     f.what.required = kind !== 'alloc';
     $('#spendPriceLabel').textContent = kind === 'alloc' ? 'Amount set aside' : 'Price';
     $('#catField').style.display = kind === 'spend' ? 'none' : '';
-    $('#payerField').style.display = kind === 'alloc' ? 'none' : '';
+    $('#payerLabel').textContent = kind === 'alloc' ? 'For who (optional)' : 'Who paid';
+    f.paidBy.placeholder = kind === 'alloc' ? 'e.g. Lee — leave empty if shared' : 'Name';
     $('#spendDelete').style.display = sp ? '' : 'none';
-    const code = sp ? sp.currency : (kind === 'spend' ? trip.lastSpendCurrency || trip.currency : kind === 'alloc' ? trip.base : trip.currency);
+    const code = sp ? sp.currency : (kind === 'spend' ? trip.lastSpendCurrency || trip.currency : trip.currency);
     f.currency.innerHTML = curOptions(trip, code);
     f.currency.value = code;
     selectedCat = sp ? sp.category || '' : (kind === 'alloc' ? 'meals' : kind === 'cost' ? 'flight' : '');
     if (sp) {
       f.what.value = sp.item;
       f.amount.value = sp.amount || '';
-      f.paidBy.value = sp.paidBy || '';
+      f.paidBy.value = (kind === 'alloc' ? sp.forWho : sp.paidBy) || '';
     } else {
       f.paidBy.value = kind === 'spend' ? trip.lastPayer || '' : '';
     }
@@ -1195,6 +1222,7 @@
     const rate = num(f.rate.value);
     if (currency !== trip.base && rate > 0) trip.rates[currency] = rate;
     const data = { item: itemName, amount: num(f.amount.value), currency, paidBy: kind === 'alloc' ? '' : f.paidBy.value.trim() };
+    if (kind === 'alloc') data.forWho = f.paidBy.value.trim();
     if (kind !== 'spend') data.category = selectedCat;
     if (sp) Object.assign(sp, data);
     else list.push({ id: uid(), ...data });
