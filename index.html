@@ -155,6 +155,14 @@
         <div class="chips" id="payerChips"></div>
         <input type="text" name="paidBy" placeholder="Name" autocomplete="off" />
       </div>
+      <details class="more" id="allocMore">
+        <summary>Take from a budget allocation <span>(optional)</span></summary>
+        <label class="field">
+          <span>Budget allocation</span>
+          <select name="allocId"></select>
+        </label>
+        <p class="muted-note" id="allocHint"></p>
+      </details>
       <div class="sheet-actions">
         <button type="button" class="btn ghost danger" id="spendDelete">Delete</button>
         <span class="spacer"></span>

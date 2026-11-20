@@ -6,7 +6,7 @@
   const STORE_KEY = 'swipe-itinerary.v1'; // keep the same key so existing trips survive updates
   // App version shown in the footer. Goes up by 0.1 with every release; keep it equal to the
   // number in sw.js (CACHE = 'swipe-itinerary-v…') so phones pick up the new files.
-  const APP_VERSION = '1.6';
+  const APP_VERSION = '1.7';
   const footerHTML = () => `<footer class="app-footer">Swipe Itinerary · v${APP_VERSION}</footer>`;
 
   const MODES = [
@@ -99,6 +99,17 @@
       Object.entries(t.rates).forEach(([k, v]) => { const c = normCur(k); if (c && c !== base && Number(v) > 0) rates[c] = Number(v); });
     }
     const fee = (f) => ({ id: id(f?.id), label: String(f?.label || ''), amount: num(f?.amount), currency: normCur(f?.currency) || currency });
+    const money = (x) => ({
+      id: id(x?.id), item: String(x?.item || catOf(x?.category).label), amount: num(x?.amount),
+      currency: normCur(x?.currency) || currency, paidBy: String(x?.paidBy || ''), category: catOf(x?.category).id,
+    });
+    const allocIds = {}; // old id -> id now (ids change when restoring a backup)
+    // forWho: optional person the money is set aside for (e.g. "Lee")
+    const allocs = (Array.isArray(t.allocs) ? t.allocs : []).map((a) => {
+      const out = { ...money(a), paidBy: '', forWho: String(a?.forWho || '').trim() };
+      if (a?.id) allocIds[a.id] = out.id;
+      return out;
+    });
     const days = (Array.isArray(t.days) ? t.days : []).map((d) => ({
       id: id(d?.id),
       title: String(d?.title || ''),
@@ -118,19 +129,15 @@
       spend: (Array.isArray(d?.spend) ? d.spend : []).map((s) => ({
         id: id(s?.id), item: String(s?.item || 'Item'), amount: num(s?.amount),
         currency: normCur(s?.currency) || currency, paidBy: String(s?.paidBy || ''),
+        allocId: allocIds[s?.allocId] || '', // optional: budget allocation this is taken from
       })),
     }));
     if (!days.length) days.push({ id: uid(), title: '', items: [], spend: [] });
-    const money = (x) => ({
-      id: id(x?.id), item: String(x?.item || catOf(x?.category).label), amount: num(x?.amount),
-      currency: normCur(x?.currency) || currency, paidBy: String(x?.paidBy || ''), category: catOf(x?.category).id,
-    });
     return {
       id: id(t.id), name: String(t.name || 'Trip'), startDate: String(t.startDate || ''),
       base, currency, rates, ratesUpdated: String(t.ratesUpdated || ''), days,
       costs: (Array.isArray(t.costs) ? t.costs : []).map(money),
-      // forWho: optional person the money is set aside for (e.g. "Lee")
-      allocs: (Array.isArray(t.allocs) ? t.allocs : []).map((a) => ({ ...money(a), paidBy: '', forWho: String(a?.forWho || '').trim() })),
+      allocs,
       travellers: Math.max(1, Math.min(99, parseInt(t.travellers, 10) || 1)),
       lastPayer: String(t.lastPayer || ''), lastSpendCurrency: normCur(t.lastSpendCurrency) || '',
       // Online sharing: emails that can open this trip (empty = only on this phone so far)
@@ -540,6 +547,29 @@
     </button></li>`;
   }
 
+  // How much of an allocation is used by spending linked to it, in the allocation's own currency
+  function allocUsage(trip, a, except) {
+    const linked = tripSpend(trip).filter((s) => s.allocId === a.id && s !== except);
+    const used = sumIn(trip, linked, a.currency);
+    return { linked, used: used.total, left: a.amount - used.total, missing: used.missing };
+  }
+  // Convert any amount into the allocation's currency (null if a rate is missing)
+  function inCurrency(trip, amount, from, to) {
+    if (from === to) return num(amount);
+    const v = toBase(trip, amount, from); const r = rateOf(trip, to);
+    return v == null || !r ? null : v / r;
+  }
+  const allocName = (a) => `${catOf(a.category).icon} ${a.item}${a.forWho ? ` · ${a.forWho}` : ''}`;
+  function allocBalanceHTML(trip, a) {
+    const u = allocUsage(trip, a);
+    const pct = a.amount ? Math.min(100, (u.used / a.amount) * 100) : 0;
+    const text = !u.linked.length ? `${esc(fmtMoney(a.amount, a.currency))} left · nothing taken yet`
+      : u.left >= 0 ? `Used ${esc(fmtMoney(u.used, a.currency))} · <b>${esc(fmtMoney(u.left, a.currency))} left</b>`
+        : `<b class="warn">Over by ${esc(fmtMoney(-u.left, a.currency))}</b> · used ${esc(fmtMoney(u.used, a.currency))}`;
+    return `<span class="alloc-bal">${text}${u.missing.size ? ' <span class="warn">*</span>' : ''}</span>
+      <span class="meter small"><i style="width:${pct}%" class="${u.left < 0 ? 'over' : ''}"></i></span>`;
+  }
+
   // Allocations per person: what's set aside for them, and what they've paid in daily spending
   function allocPeopleHTML(trip, code) {
     const people = new Map(); // lower-case name -> { name, list }
@@ -615,7 +645,10 @@
 
       <section class="spend">
         <div class="spend-head"><h2>🍱 Budget allocations</h2><span class="muted-note">Money set aside</span></div>
-        ${trip.allocs.length ? `<ul class="spend-list">${trip.allocs.map((a) => moneyRow(trip, a, 'data-alloc', `${esc(catOf(a.category).label)}${a.forWho ? ` · for <b class="for-who">${esc(a.forWho)}</b>` : ''}`)).join('')}</ul>`
+        ${trip.allocs.length ? `<ul class="spend-list">${trip.allocs.map((a) => moneyRow(trip, a, 'data-alloc', `${[
+          a.item.toLowerCase() !== catOf(a.category).label.toLowerCase() ? esc(catOf(a.category).label) : '',
+          a.forWho ? `for <b class="for-who">${esc(a.forWho)}</b>` : '',
+        ].filter(Boolean).join(' · ')}${allocBalanceHTML(trip, a)}`)).join('')}</ul>`
           : '<div class="spend-empty">Set aside money for things like meals, lodging, transport and shopping.</div>'}
         <button class="btn add-row-btn" id="addAlloc">+ Add allocation</button>
         <div class="spend-foot">
@@ -827,7 +860,10 @@
           ${day.spend.map((s) => {
             const v = toBase(trip, s.amount, s.currency);
             return `<li><button class="spend-item" data-spend="${s.id}">
-              <div class="what"><b>${esc(s.item)}</b><small>${s.paidBy ? `Paid by ${esc(s.paidBy)}` : 'Who paid? —'}</small></div>
+              <div class="what"><b>${esc(s.item)}</b><small>${s.paidBy ? `Paid by ${esc(s.paidBy)}` : 'Who paid? —'}${(() => {
+                const a = trip.allocs.find((x) => x.id === s.allocId);
+                return a ? `<span class="from-alloc">from ${esc(allocName(a))}</span>` : '';
+              })()}</small></div>
               <div class="amt"><b>${esc(fmtMoney(s.amount, s.currency))}</b>
                 ${s.currency !== trip.base ? `<small>${v == null ? '<span class="warn">set rate</span>' : '≈ ' + esc(fmtMoney(v, trip.base, true))}</small>` : ''}</div>
             </button></li>`;
@@ -1198,6 +1234,15 @@
     $('#payerLabel').textContent = kind === 'alloc' ? 'For who (optional)' : 'Who paid';
     f.paidBy.placeholder = kind === 'alloc' ? 'e.g. Lee — leave empty if shared' : 'Name';
     $('#spendDelete').style.display = sp ? '' : 'none';
+    // Optional "take from a budget allocation" (daily spending only), folded away unless used
+    const more = $('#allocMore');
+    more.hidden = kind !== 'spend' || !trip.allocs.length;
+    more.open = !!(sp && sp.allocId);
+    f.allocId.innerHTML = '<option value="">— None —</option>' + trip.allocs.map((a) => {
+      const u = allocUsage(trip, a, sp);
+      return `<option value="${a.id}">${esc(allocName(a))} — ${esc(fmtMoney(u.left, a.currency))} left</option>`;
+    }).join('');
+    f.allocId.value = (sp && trip.allocs.some((a) => a.id === sp.allocId)) ? sp.allocId : '';
     const code = sp ? sp.currency : (kind === 'spend' ? trip.lastSpendCurrency || trip.currency : trip.currency);
     f.currency.innerHTML = curOptions(trip, code);
     f.currency.value = code;
@@ -1212,11 +1257,31 @@
     renderCatChips();
     renderPayerChips();
     fillSpendRate();
+    updateAllocHint();
     spendDialog.showModal();
     spendDialog.scrollTop = 0;
     if (!sp) setTimeout(() => f.what.focus(), 50);
   }
   const openSpendDialog = (trip, day, sp) => openMoneyDialog('spend', trip, day.spend, sp);
+
+  // "₩ 250,000 left → ₩ 238,000 after this"
+  function updateAllocHint() {
+    const { trip, sp } = spendCtx;
+    const f = spendForm.elements;
+    const a = trip.allocs.find((x) => x.id === f.allocId.value);
+    const el = $('#allocHint');
+    if (!a) { el.innerHTML = ''; return; }
+    const u = allocUsage(trip, a, sp);
+    const thisOne = inCurrency(trip, f.amount.value, f.currency.value, a.currency);
+    if (thisOne == null) { el.innerHTML = `${esc(fmtMoney(u.left, a.currency))} left <span class="warn">(set the exchange rate to see the balance after this)</span>`; return; }
+    const after = u.left - thisOne;
+    el.innerHTML = `${esc(fmtMoney(u.left, a.currency))} left → <b class="${after < 0 ? 'warn' : ''}">${after < 0
+      ? `over by ${esc(fmtMoney(-after, a.currency))}` : `${esc(fmtMoney(after, a.currency))} after this`}</b>`;
+  }
+  spendForm.elements.allocId.addEventListener('change', updateAllocHint);
+  spendForm.elements.amount.addEventListener('input', updateAllocHint);
+  spendForm.elements.currency.addEventListener('change', updateAllocHint);
+  spendForm.elements.rate.addEventListener('input', updateAllocHint);
 
   spendForm.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -1229,6 +1294,7 @@
     if (currency !== trip.base && rate > 0) trip.rates[currency] = rate;
     const data = { item: itemName, amount: num(f.amount.value), currency, paidBy: kind === 'alloc' ? '' : f.paidBy.value.trim() };
     if (kind === 'alloc') data.forWho = f.paidBy.value.trim();
+    if (kind === 'spend') data.allocId = f.allocId.value;
     if (kind !== 'spend') data.category = selectedCat;
     if (sp) Object.assign(sp, data);
     else list.push({ id: uid(), ...data });
@@ -1241,6 +1307,7 @@
     const { trip, list, sp } = spendCtx;
     if (!confirm(`Delete "${sp.item}"?`)) return;
     list.splice(list.indexOf(sp), 1);
+    if (spendCtx.kind === 'alloc') tripSpend(trip).forEach((s) => { if (s.allocId === sp.id) s.allocId = ''; });
     save(); spendDialog.close(); renderTrip(trip);
     toast('Deleted');
   });

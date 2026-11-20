@@ -419,3 +419,20 @@ dialog form, .field, .field-row > * { min-width: 0; }
 .legend li i { margin-top: 5px; }
 .legend .dual b { color: #fff; }
 .legend .dual small { color: rgba(255, 255, 255, .78); }
+
+/* Optional section folded away in the spending form */
+details.more { border: 1.5px dashed var(--line); border-radius: 14px; padding: 10px 12px; }
+details.more[open] { border-style: solid; display: grid; gap: 10px; }
+details.more summary { cursor: pointer; font-weight: 600; color: var(--brand); list-style: none; }
+details.more summary::-webkit-details-marker { display: none; }
+details.more summary::before { content: '▸ '; display: inline-block; transition: transform .15s; }
+details.more[open] summary::before { content: '▾ '; }
+details.more summary span { color: var(--muted); font-weight: 400; }
+details.more[hidden] { display: none; }
+#allocHint b { color: var(--text); }
+/* Allocation balance on the Overview */
+.alloc-bal { display: block; margin-top: 3px; }
+.alloc-bal b { display: inline !important; color: var(--brand); font-weight: 700; }
+.alloc-bal b.warn { color: var(--danger); }
+.meter.small { display: block; height: 5px; margin-top: 5px; max-width: 220px; }
+.from-alloc { display: block; color: var(--brand); }
